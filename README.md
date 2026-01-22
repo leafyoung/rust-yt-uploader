@@ -22,7 +22,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rust-yt-uploader = "0.2.6"
+rust-yt-uploader = "0.2.7"
 ```
 
 ### As a CLI Tool
@@ -123,7 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 common:
     prefix: "My Video Series"
     keywords: "rust,youtube,programming"
-    category: 28 # Science & Technology
+    category: ScienceTechnology
     privacyStatus: "private"
     playlistId: "PL1234567890123456"
 
@@ -144,7 +144,7 @@ videos:
       description: "This is my first video"
       keywords: "rust,youtube"
       file: "/path/to/video1.mp4"
-      category: 28
+      category: ScienceTechnology
       privacyStatus: "private"
       playlistId: "PL1234567890123456"
 ```
