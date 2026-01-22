@@ -22,7 +22,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rust-yt-uploader = "0.2.0"
+rust-yt-uploader = "0.2.3"
 ```
 
 ### As a CLI Tool
@@ -36,9 +36,9 @@ rust-yt-uploader = "0.2.0"
 #### Build from Source
 
 ```bash
-git clone <repository>
-cd yt-uploader-rust
-cargo build --release --bin rust-yt-upload
+git clone https://github.com/yourusername/rust-yt-uploader
+cd rust-yt-uploader
+cargo build --release --bin yt-upload
 ```
 
 The binary will be available at `target/release/rust-yt-upload`.
