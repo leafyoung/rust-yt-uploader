@@ -174,11 +174,20 @@ impl OAuthFlow {
         // Try to load existing valid credentials
         if let Some(ref token_path) = token_file_path
             && let Ok(credentials) = Credentials::from_file(token_path.as_ref())
-            && credentials.is_valid()
-            && credentials.has_scopes(scopes)
         {
-            info!("Using existing valid credentials");
-            return Ok(credentials);
+            if credentials.has_scopes(scopes) {
+                if credentials.is_valid() {
+                    info!("Using existing valid credentials");
+                    return Ok(credentials);
+                } else {
+                    // refresh token flow could be implemented here
+                }
+            } else {
+                info!(
+                    "Credentials has different scopes, re-authenticating {:?}",
+                    credentials.scopes
+                );
+            }
         }
 
         info!("No valid credentials found - starting OAuth flow");
