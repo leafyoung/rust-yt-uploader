@@ -22,7 +22,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rust-yt-uploader = "0.2.7"
+rust-yt-uploader = "0.2.8"
 ```
 
 ### As a CLI Tool
@@ -114,7 +114,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-
 ## YAML Configuration Formats
 
 #### Batch Format (Recommended)
@@ -196,7 +195,6 @@ cargo run --bin yt-upload --file config.yaml --async
 # Custom concurrency level
 cargo run --bin yt-upload --file config.yaml --async --concurrent 5
 ```
-
 
 ## Performance
 
