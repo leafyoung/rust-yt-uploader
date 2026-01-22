@@ -6,10 +6,10 @@
 
 use anyhow::Result;
 use clap::Parser;
+use rust_yt_uploader::{BatchConfigRoot, ConfigFormat, LegacyConfigRoot};
 use rust_yt_uploader::{
     upload_batch_concurrent, upload_batch_sequential, upload_legacy_sequential,
 };
-use rust_yt_uploader::{BatchConfigRoot, ConfigFormat, LegacyConfigRoot};
 use std::path::PathBuf;
 use tracing::info;
 
@@ -70,7 +70,8 @@ fn detect_yaml_schema(config: &str) -> Result<ConfigFormat> {
         }
     }
 
-    anyhow::bail!("Unable to determine YAML schema. Expected either 'videos' key (legacy) or 'common', 'titles', and 'files' keys (modern)."
+    anyhow::bail!(
+        "Unable to determine YAML schema. Expected either 'videos' key (legacy) or 'common', 'titles', and 'files' keys (modern)."
     );
 }
 

@@ -2,7 +2,7 @@
 
 use super::credentials::Credentials;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use base64::Engine;
 use rand::Rng;
 use reqwest::Client;

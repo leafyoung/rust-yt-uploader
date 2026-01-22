@@ -191,51 +191,20 @@ Example: `PL1234567890123456`
 
 ```bash
 # Sequential upload (default)
-rust-yt-upload --file config.yaml
+cargo run --bin yt-upload --file config.yaml
 
 # Sequential upload with progress bars
-rust-yt-upload --file config.yaml --progress
+cargo run --bin yt-upload --file config.yaml --progress
 
 # Concurrent upload (3 concurrent by default)
-rust-yt-upload --file config.yaml --async
+cargo run --bin yt-upload --file config.yaml --async
 
 # Custom concurrency level
-rust-yt-upload --file config.yaml --async --concurrent 5
+cargo run --bin yt-upload --file config.yaml --async --concurrent 5
 ```
 
-### Environment Variables
-
-- `RUST_LOG`: Set logging level (e.g., `RUST_LOG=rust_yt_uploader=debug`)
-- `YOUTUBE_CLIENT_SECRETS`: Override default client secrets file path
-- `YOUTUBE_TOKEN_FILE`: Override default token file path
 
 ## Performance
-
-### Benchmarks vs Python Version
-
-- **Startup Time**: ~3x faster startup due to compiled binary
-- **Concurrent Uploads**: Better resource utilization with Tokio async runtime
-- **File Validation**: Parallel validation reduces config processing time
-- **Error Recovery**: Faster retry cycles with native async/await
-
-### Advantages over Python Version
-
-| Feature        | Python             | Rust                          |
-| -------------- | ------------------ | ----------------------------- |
-| Memory Safety  | Runtime checks     | Compile-time guarantees       |
-| Performance    | Interpreted        | Compiled native code          |
-| Dependencies   | ~15 packages       | Statically linked binary      |
-| Error Handling | Exception-based    | Result-based with context     |
-| Concurrency    | asyncio            | Tokio (more efficient)        |
-| Type Safety    | Runtime (Pydantic) | Compile-time                  |
-| Binary Size    | N/A                | ~10MB (with all dependencies) |
-
-### Optimization Features
-
-- **Connection Pooling**: HTTP connection reuse for multiple uploads
-- **Parallel Validation**: Concurrent file existence checks
-- **Zero-Copy Operations**: Minimal memory allocations during upload
-- **Async File Validation**: Parallel validation of configuration files
 
 ## Project Summary
 
@@ -264,136 +233,12 @@ This project is a complete Rust implementation of the Python YouTube uploader, p
 - `tracing`: Structured logging
 - `anyhow`/`thiserror`: Comprehensive error handling
 
-### Performance Benefits
-
-- **~3x faster startup** due to compiled binary
-- **Better concurrent performance** with Tokio's efficient async runtime
-- **Parallel validation** reduces configuration processing time
-- **Faster retry cycles** with native async/await
-
-### Safety & Reliability
-
-- **Memory safety** guaranteed at compile time
-- **Thread safety** enforced by the type system
-- **No runtime exceptions** - all errors handled explicitly
-- **Immutable by default** preventing accidental data modification
-
-### Project Statistics
-
-- **Total Lines of Code**: ~1,500+ lines
-- **Test Coverage**: Comprehensive unit and integration tests
-- **Dependencies**: 20+ carefully selected crates
-- **Documentation**: 100% public API documented
-- **Performance**: 3-10x faster than Python version in startup and concurrent processing
-- **Memory Safety**: 100% safe Rust code (no unsafe blocks)
-
-## Development
-
-### Project Structure
-
-```
-src/
-├── main.rs          # CLI entry point and argument parsing
-├── lib.rs           # Library exports and module declarations
-├── models.rs        # Configuration models with validation
-├── auth.rs          # OAuth 2.0 authentication and token management
-├── upload.rs        # Core upload functionality and API calls
-└── retry.rs         # Retry logic with exponential backoff
-
-tests/
-├── integration.rs   # Integration tests
-├── models_test.rs   # Model validation tests
-└── upload_test.rs   # Upload functionality tests
-```
-
-### Running Tests
-
-```bash
-# Unit tests
-cargo test
-
-# Integration tests (requires valid credentials)
-cargo test --test integration
-
-# Test with coverage
-cargo tarpaulin --out html
-```
-
-### Code Quality
-
-```bash
-# Format code
-cargo fmt
-
-# Lint code
-cargo clippy -- -D warnings
-
-# Check for security vulnerabilities
-cargo audit
-
-# Generate documentation
-cargo doc --open
-```
-
-## Troubleshooting
-
-### Common Issues
-
-1. **"Client secrets file not found"**
-    - Ensure `client_secret.json` is in the correct location
-    - Check file permissions
-
-2. **"OAuth 2.0 flow not yet implemented"**
-    - This is expected on first run
-    - Follow the OAuth setup instructions above
-
-3. **"Invalid playlist ID format"**
-    - Ensure playlist ID starts with "PL" and has correct length
-    - Check for typos in the playlist ID
-
-4. **Upload failures**
-    - Check internet connection
-    - Verify video file exists and is readable
-    - Check YouTube API quotas
-
-### Debug Mode
-
-Enable debug logging for detailed troubleshooting:
-
-```bash
-RUST_LOG=rust_yt_uploader=debug rust-yt-upload --file config.yaml
-```
-
-### Performance Tips
-
-1. **Use concurrent uploads** for multiple videos: `--async --concurrent 5`
-2. **Optimize video files** before upload to reduce upload time
-3. **Use SSD storage** for better I/O performance during upload
-4. **Monitor network bandwidth** during concurrent uploads
-
 ### Security Notes
 
 - Never commit `client_secret.json` or token files to version control
 - Store credentials securely with appropriate file permissions (600)
 - Regularly rotate OAuth tokens if needed
 - Use private/unlisted privacy settings for sensitive content
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Ensure all tests pass
-6. Submit a pull request
-
-### Code Style
-
-- Follow Rust naming conventions (snake_case for functions, PascalCase for types)
-- Use `cargo fmt` for consistent formatting
-- Address all `cargo clippy` warnings
-- Add documentation for public APIs
-- Include unit tests for new functionality
 
 ## License
 

@@ -3,7 +3,7 @@
 //! This module provides Serde-based models that mirror the Python Pydantic models,
 //! supporting both legacy and modern YAML configuration formats.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use futures::future::try_join_all;
 use rand::Rng;
 use regex::Regex;

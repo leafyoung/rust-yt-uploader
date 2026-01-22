@@ -16,7 +16,7 @@ pub use models::{
     VideoCategory, VideoConfig, VideoUploadOptions,
 };
 pub use youtube_client::{
-    upload_batch_concurrent, upload_batch_sequential, upload_legacy_sequential, YouTubeClient,
+    YouTubeClient, upload_batch_concurrent, upload_batch_sequential, upload_legacy_sequential,
 };
 
 pub use retry::retry_with_backoff;

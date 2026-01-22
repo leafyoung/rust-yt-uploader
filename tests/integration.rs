@@ -5,7 +5,7 @@
 
 use anyhow::Result;
 use rust_yt_uploader::{
-    youtube_client, BatchConfigRoot, CommonConfig, LegacyConfigRoot, PrivacyStatus, VideoCategory,
+    BatchConfigRoot, CommonConfig, LegacyConfigRoot, PrivacyStatus, VideoCategory, youtube_client,
 };
 use std::io::Write;
 use tempfile::NamedTempFile;
