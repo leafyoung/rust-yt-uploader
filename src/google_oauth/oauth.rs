@@ -179,8 +179,24 @@ impl OAuthFlow {
                 if credentials.is_valid() {
                     info!("Using existing valid credentials");
                     return Ok(credentials);
+                } else if let Some(refresh_token) = &credentials.refresh_token {
+                    info!("Credentials expired, attempting refresh");
+                    match self
+                        .refresh_token(&app_secret.installed, refresh_token, scopes)
+                        .await
+                    {
+                        Ok(refreshed_credentials) => {
+                            info!("Token refresh successful");
+                            let json_str = refreshed_credentials.to_json()?;
+                            std::fs::write(token_path.as_ref(), json_str)?;
+                            return Ok(refreshed_credentials);
+                        }
+                        Err(e) => {
+                            info!("Token refresh failed: {}, re-authenticating", e);
+                        }
+                    }
                 } else {
-                    // refresh token flow could be implemented here
+                    info!("No refresh token available, re-authenticating");
                 }
             } else {
                 info!(
@@ -485,6 +501,77 @@ impl OAuthFlow {
         Ok(Credentials {
             access_token,
             refresh_token: Some(refresh_token),
+            token_uri: app_secret.token_uri.to_string(),
+            scopes: scopes.iter().map(|s| s.to_string()).collect(),
+            expires_at,
+        })
+    }
+
+    /// Refresh access token using refresh token
+    ///
+    /// # Arguments
+    /// * `app_secret` - OAuth application credentials
+    /// * `refresh_token` - The refresh token to use
+    /// * `scopes` - List of OAuth scopes for the credentials
+    ///
+    /// # Returns
+    /// * OAuth credentials with refreshed access token
+    pub async fn refresh_token(
+        &self,
+        app_secret: &ClientSecretDetails,
+        refresh_token: &str,
+        scopes: &[&str],
+    ) -> Result<Credentials> {
+        let client = Client::new();
+
+        let body = encode_form_params!([
+            ("client_id", app_secret.client_id.as_str()),
+            ("client_secret", app_secret.client_secret.as_str()),
+            ("refresh_token", refresh_token),
+            ("grant_type", "refresh_token"),
+        ]);
+
+        let response = client
+            .post(&app_secret.token_uri)
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .body(body)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let error_text = response.text().await?;
+            return Err(anyhow!("Token refresh failed: {}", error_text));
+        }
+
+        let token_response: serde_json::Value = response.json().await?;
+
+        let access_token = token_response
+            .get("access_token")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| anyhow!("Missing access_token in response"))?;
+
+        let new_refresh_token = token_response
+            .get("refresh_token")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let expires_in = token_response
+            .get("expires_in")
+            .and_then(|v| v.as_i64())
+            .unwrap();
+
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let expires_at = current_time + expires_in;
+
+        info!("Successfully refreshed OAuth token");
+
+        Ok(Credentials {
+            access_token,
+            refresh_token: new_refresh_token.or_else(|| Some(refresh_token.to_string())),
             token_uri: app_secret.token_uri.to_string(),
             scopes: scopes.iter().map(|s| s.to_string()).collect(),
             expires_at,
