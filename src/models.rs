@@ -1,7 +1,7 @@
 //! Configuration models for YouTube uploader with validation.
 //!
 //! This module provides Serde-based models that mirror the Python Pydantic models,
-//! supporting both legacy and modern YAML configuration formats.
+//! supporting both legacy and batch YAML configuration formats.
 
 use anyhow::{Result, anyhow};
 use futures::future::try_join_all;
@@ -15,7 +15,7 @@ use validator::{Validate, ValidationError};
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConfigFormat {
     Legacy,
-    Modern,
+    Batch,
 }
 
 /// Configuration for retry behavior during uploads.
@@ -283,7 +283,7 @@ pub struct LegacyConfigRoot {
     pub videos: Vec<VideoConfig>,
 }
 
-/// Root model for batch/modern YAML format with common config.
+/// Root model for batch YAML format with common config.
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct BatchConfigRoot {
     /// Test mode flag - if true, delete videos after upload

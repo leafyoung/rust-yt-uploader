@@ -1,5 +1,5 @@
 # Example configuration file for Rust YouTube Uploader
-# This demonstrates the modern/batch configuration format
+# This demonstrates the batch configuration format
 
 common:
   # Prefix to add to all video titles

@@ -5,7 +5,7 @@ A high-performance, memory-safe Rust library for YouTube video uploading with OA
 ## Features
 
 - **OAuth 2.0 Authentication**: Secure authentication with YouTube API using OAuth 2.0 flow with PKCE support
-- **Dual Configuration Formats**: Support for both legacy and modern YAML configuration formats
+- **Dual Configuration Formats**: Support for both legacy and batch YAML configuration formats
 - **Concurrent Uploads**: Async upload mode with configurable concurrency (default: 3)
 - **Resumable Uploads**: Robust upload handling with automatic retry and resumption
 - **Progress Tracking**: Real-time upload progress bars for sequential uploads
@@ -22,21 +22,34 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rust-yt-uploader = "0.2.4"
+rust-yt-uploader = "0.2.6"
 ```
 
 ### As a CLI Tool
 
 #### Prerequisites
 
-- Rust 1.70+ (2021 edition)
 - A Google Cloud project with YouTube Data API v3 enabled
 - OAuth 2.0 client credentials (`client_secret.json`)
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project or select an existing one
+3. Enable the YouTube Data API v3
+4. Create OAuth 2.0 credentials (Desktop application)
+5. Download the credentials as `client_secret.json`
+6. Place the file in the parent directory of the Rust project
+
+The first time you run the uploader, it will:
+
+1. Display an authorization URL
+2. Open your browser for authentication
+3. Ask you to paste the authorization code
+4. Save the tokens to `youtube-oauth2.json`
 
 #### Build from Source
 
 ```bash
-git clone https://github.com/yourusername/rust-yt-uploader
+git clone https://github.com/leafyoung/rust-yt-uploader
 cd rust-yt-uploader
 cargo build --release --bin yt-upload
 ```
@@ -101,29 +114,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### As a CLI Tool
 
-## OAuth 2.0 Setup
+## YAML Configuration Formats
 
-1. Go to the [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project or select an existing one
-3. Enable the YouTube Data API v3
-4. Create OAuth 2.0 credentials (Desktop application)
-5. Download the credentials as `client_secret.json`
-6. Place the file in the parent directory of the Rust project
-
-The first time you run the uploader, it will:
-
-1. Display an authorization URL
-2. Open your browser for authentication
-3. Ask you to paste the authorization code
-4. Save the tokens to `youtube-oauth2.json`
-
-## Configuration
-
-### YAML Configuration Formats
-
-#### Modern Format (Recommended)
+#### Batch Format (Recommended)
 
 ```yaml
 common:
@@ -206,23 +200,6 @@ cargo run --bin yt-upload --file config.yaml --async --concurrent 5
 
 ## Performance
 
-## Project Summary
-
-This project is a complete Rust implementation of the Python YouTube uploader, providing the same functionality with improved performance, memory safety, and reliability. The implementation mirrors the Python version's features while leveraging Rust's strengths.
-
-### Completed Features
-
-- ✅ **CLI Interface**: Complete command-line interface using `clap` with same arguments as Python version
-- ✅ **Configuration Parsing**: Support for both legacy and modern YAML formats using `serde`
-- ✅ **Input Validation**: Comprehensive validation using `validator` crate with custom validators
-- ✅ **OAuth 2.0 Authentication**: Full OAuth 2.0 flow with PKCE support for enhanced security
-- ✅ **Token Management**: Automatic token refresh and secure storage
-- ✅ **Video Upload**: Complete upload functionality with YouTube Data API v3
-- ✅ **Playlist Management**: Automatic addition of uploaded videos to playlists
-- ✅ **Retry Logic**: Exponential backoff with jitter for handling transient failures
-- ✅ **Concurrent Uploads**: Async upload mode with configurable concurrency
-- ✅ **MTS File Support**: Special handling for MTS files with correct MIME type
-
 ### Key Dependencies
 
 - `tokio`: Async runtime for high-performance I/O
@@ -246,5 +223,5 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Acknowledgments
 
-- Use yup_oauth2 as an alternative
 - Built with the Tokio async runtime for high-performance I/O
+- Use yup_oauth2 as an alternative

@@ -50,7 +50,7 @@ struct Cli {
 /// * `config` - Raw YAML configuration as a string
 ///
 /// # Returns
-/// * `ConfigFormat` - Either Legacy or Modern
+/// * `ConfigFormat` - Either Legacy or Batch
 ///
 /// # Errors
 /// * Returns error if schema cannot be determined
@@ -66,12 +66,12 @@ fn detect_yaml_schema(config: &str) -> Result<ConfigFormat> {
             && mapping.contains_key("titles")
             && mapping.contains_key("files")
         {
-            return Ok(ConfigFormat::Modern);
+            return Ok(ConfigFormat::Batch);
         }
     }
 
     anyhow::bail!(
-        "Unable to determine YAML schema. Expected either 'videos' key (legacy) or 'common', 'titles', and 'files' keys (modern)."
+        "Unable to determine YAML schema. Expected either 'videos' key (legacy) or 'common', 'titles', and 'files' keys (batch)."
     );
 }
 
@@ -111,8 +111,8 @@ async fn main() -> Result<()> {
 
             upload_legacy_sequential(config, cli.progress).await?;
         }
-        ConfigFormat::Modern => {
-            info!("Detected modern YAML schema format");
+        ConfigFormat::Batch => {
+            info!("Detected batch YAML schema format");
             let config: BatchConfigRoot = serde_yaml_ng::from_str(&config_content)
                 .map_err(|e| anyhow::anyhow!("Failed to parse batch config: {}", e))?;
 
