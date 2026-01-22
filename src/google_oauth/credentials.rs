@@ -4,6 +4,7 @@ use serde_json::{self};
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::warn;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -12,13 +13,17 @@ pub struct Credentials {
     pub refresh_token: Option<String>,
     pub token_uri: String,
     pub scopes: Vec<String>,
-    pub expires_in: i64,
+    pub expires_at: i64,
 }
 
 impl Credentials {
     /// Check if the credentials are valid (not expired)
     pub fn is_valid(&self) -> bool {
-        self.expires_in > 600 // More than 10 minutes remaining
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        self.expires_at > current_time + 600 // More than 10 minutes remaining
     }
 
     /// Check if credentials have the required scopes

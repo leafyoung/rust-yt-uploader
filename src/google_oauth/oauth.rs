@@ -8,6 +8,7 @@ use rand::Rng;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tiny_http::{Response, Server};
 use tracing::info;
 use url::Url;
@@ -237,7 +238,7 @@ impl OAuthFlow {
                     refresh_token: None, // yup-oauth2 does not expose refresh token directly
                     token_uri,
                     scopes: scopes.iter().map(|s| s.to_string()).collect(),
-                    expires_in: token
+                    expires_at: token
                         .expiration_time()
                         .map(|t| t.unix_timestamp())
                         .unwrap_or(0),
@@ -464,6 +465,12 @@ impl OAuthFlow {
             .and_then(|v| v.as_i64())
             .unwrap();
 
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let expires_at = current_time + expires_in;
+
         info!("Successfully obtained OAuth tokens with PKCE protection");
 
         Ok(Credentials {
@@ -471,7 +478,7 @@ impl OAuthFlow {
             refresh_token: Some(refresh_token),
             token_uri: app_secret.token_uri.to_string(),
             scopes: scopes.iter().map(|s| s.to_string()).collect(),
-            expires_in,
+            expires_at,
         })
     }
 }
