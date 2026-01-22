@@ -22,7 +22,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rust-yt-uploader = "0.2.3"
+rust-yt-uploader = "0.2.4"
 ```
 
 ### As a CLI Tool
