@@ -1,0 +1,52 @@
+# Rust
+/target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+
+# OAuth credentials and tokens (NEVER commit these)
+client_secret.json
+*-oauth2.json
+youtube-oauth2.json
+
+# Test files
+test_videos/
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.mts
+
+# Coverage reports
+coverage/
+tarpaulin-report.html
+
+# Documentation build
+/docs/
+
+# Environment variables
+.env
+.env.local
+
+# Temporary files
+*.tmp
+*.temp

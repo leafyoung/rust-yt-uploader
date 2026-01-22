@@ -1,0 +1,22 @@
+//! Rust YouTube Uploader Library
+//!
+//! A Rust-based YouTube video uploader with OAuth 2.0 authentication,
+//! supporting both sequential and concurrent upload modes with comprehensive
+//! configuration validation.
+
+pub mod google_oauth;
+pub mod models;
+pub mod retry;
+pub mod youtube_client;
+
+// Re-export commonly used types
+pub use google_oauth::{Credentials, GoogleOAuth};
+pub use models::{
+    BatchConfigRoot, CommonConfig, ConfigFormat, LegacyConfigRoot, PrivacyStatus, RetryConfig,
+    VideoCategory, VideoConfig, VideoUploadOptions,
+};
+pub use youtube_client::{
+    upload_batch_concurrent, upload_batch_sequential, upload_legacy_sequential, YouTubeClient,
+};
+
+pub use retry::retry_with_backoff;

@@ -1,0 +1,32 @@
+# Example configuration file for Rust YouTube Uploader
+# This demonstrates the modern/batch configuration format
+
+common:
+  # Prefix to add to all video titles
+  prefix: "My Video Series - "
+
+  # Comma-separated keywords/tags for all videos
+  keywords: "rust,programming,tutorial,youtube"
+
+  # Video category ID (see README.md for full list)
+  # 28 = Science & Technology
+  category: 28
+
+  # Privacy status: public, private, or unlisted
+  privacyStatus: "private"
+
+  # YouTube playlist ID (must start with "PL")
+  # Get this from your YouTube playlist URL
+  playlistId: "PL1234567890123456"
+
+# List of video titles (will be prefixed with common.prefix)
+titles:
+  - "Episode 1: Introduction to Rust"
+  - "Episode 2: Setting up the Environment"
+  - "Episode 3: Your First Rust Program"
+
+# List of video file paths (must match titles length)
+files:
+  - "/path/to/episode1.mp4"
+  - "/path/to/episode2.mp4"
+  - "/path/to/episode3.mp4"
