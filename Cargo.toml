@@ -6,13 +6,12 @@ authors = ["YouTube Uploader Team"]
 description = "High-performance YouTube video uploader in Rust with OAuth 2.0, concurrent uploads, and comprehensive validation"
 license = "MIT"
 repository = "https://github.com/yourusername/rust-yt-uploader"
-keywords = ["youtube", "upload", "api", "oauth", "async"]
+keywords = ["youtube", "upload", "api", "oauth", "async", "google"]
 categories = [
     "api-bindings",
     "multimedia::video",
     "authentication",
-    "google",
-    "youtube",
+    "web-programming::http-client",
 ]
 exclude = ["client_secret.json", "youtube-oauth2.json", "example-config.yaml"]
 
