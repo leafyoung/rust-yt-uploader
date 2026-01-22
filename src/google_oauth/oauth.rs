@@ -8,7 +8,6 @@ use rand::Rng;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::boxed::Box;
 use tiny_http::{Response, Server};
 use tracing::info;
 use url::Url;

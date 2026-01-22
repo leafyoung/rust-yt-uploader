@@ -401,6 +401,5 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Acknowledgments
 
-- Based on the Python YouTube uploader implementation
-- Uses the Google Cloud Rust SDK for YouTube API integration
+- Use yup_oauth2 as an alternative
 - Built with the Tokio async runtime for high-performance I/O

@@ -1,6 +1,6 @@
 [package]
 name = "rust-yt-uploader"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 authors = ["YouTube Uploader Team"]
 description = "High-performance YouTube video uploader in Rust with OAuth 2.0, concurrent uploads, and comprehensive validation"
@@ -23,8 +23,8 @@ name = "yt-upload"
 path = "src/bin/yt_upload.rs"
 
 [features]
-# default = []
-default = ["use-yup-oauth2"]
+default = []
+# default = ["use-yup-oauth2"]
 use-yup-oauth2 = ["yup-oauth2"]
 
 [dependencies]
