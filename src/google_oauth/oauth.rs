@@ -171,13 +171,13 @@ impl OAuthFlow {
         let app_secret = self.parse_client_secrets(&json_str)?;
 
         // Try to load existing valid credentials
-        if let Some(ref token_path) = token_file_path {
-            if let Ok(credentials) = Credentials::from_file(token_path.as_ref()) {
-                if credentials.is_valid() && credentials.has_scopes(scopes) {
-                    info!("Using existing valid credentials");
-                    return Ok(credentials);
-                }
-            }
+        if let Some(ref token_path) = token_file_path
+            && let Ok(credentials) = Credentials::from_file(token_path.as_ref())
+            && credentials.is_valid()
+            && credentials.has_scopes(scopes)
+        {
+            info!("Using existing valid credentials");
+            return Ok(credentials);
         }
 
         info!("No valid credentials found - starting OAuth flow");
