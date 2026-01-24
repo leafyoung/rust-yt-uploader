@@ -5,7 +5,7 @@ A high-performance, memory-safe Rust library for YouTube video uploading with OA
 ## Features
 
 - **OAuth 2.0 Authentication**: Secure authentication with YouTube API using OAuth 2.0 flow with PKCE support
-- **Dual Configuration Formats**: Support for both legacy and batch YAML configuration formats
+- **Dual Configuration Formats**: Support for both individual and batch YAML configuration formats
 - **Concurrent Uploads**: Async upload mode with configurable concurrency (default: 3)
 - **Resumable Uploads**: Robust upload handling with automatic retry and resumption
 - **Progress Tracking**: Real-time upload progress bars for sequential uploads
@@ -135,7 +135,7 @@ files:
     - "/path/to/video2.mp4"
 ```
 
-#### Legacy Format
+#### Individual Format
 
 ```yaml
 videos:

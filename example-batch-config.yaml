@@ -19,6 +19,15 @@ common:
   # Get this from your YouTube playlist URL
   playlistId: "PL1234567890123456"
 
+  # Default audio language for the video (e.g., "en", "zh-Hans", "es")
+  defaultAudioLanguage: "en"
+
+  # Default language for the video (e.g., "en", "zh-Hans", "es")
+  defaultLanguage: "en"
+
+  # Recording date in ISO 8601 format (YYYY-MM-DD will be converted to YYYY-MM-DDT00:00:00.000Z)
+  recordingDate: "2026-01-24"
+
 # List of video titles (will be prefixed with common.prefix)
 titles:
   - "Episode 1: Introduction to Rust"

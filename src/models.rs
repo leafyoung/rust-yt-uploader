@@ -1,7 +1,7 @@
 //! Configuration models for YouTube uploader with validation.
 //!
 //! This module provides Serde-based models that mirror the Python Pydantic models,
-//! supporting both legacy and batch YAML configuration formats.
+//! supporting both individual and batch YAML configuration formats.
 
 use anyhow::{Result, anyhow};
 use futures::future::try_join_all;
@@ -14,7 +14,7 @@ use validator::{Validate, ValidationError};
 /// Configuration format detection result
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConfigFormat {
-    Legacy,
+    Individual,
     Batch,
 }
 
@@ -67,6 +67,25 @@ pub struct VideoUploadOptions {
     pub category: u32,
     pub privacy_status: String,
     pub playlist_id: String,
+    #[serde(rename = "defaultAudioLanguage")]
+    pub default_audio_language: String,
+    #[serde(rename = "defaultLanguage")]
+    pub default_language: String,
+    #[serde(rename = "recordingDate")]
+    pub recording_date: String,
+}
+
+impl VideoUploadOptions {
+    /// Convert recording_date from "YYYY-MM-DD" to YouTube API timestamp format "YYYY-MM-DDTHH:MM:SS.000Z"
+    pub fn formatted_recording_date(&self) -> String {
+        if self.recording_date.contains('T') {
+            // Already in timestamp format, return as-is
+            self.recording_date.clone()
+        } else {
+            // Convert "YYYY-MM-DD" to "YYYY-MM-DDT00:00:00.000Z"
+            format!("{}T00:00:00.000Z", self.recording_date)
+        }
+    }
 }
 
 /// Valid YouTube video privacy status values.
@@ -227,6 +246,18 @@ pub struct CommonConfig {
     #[validate(custom(function = "validate_playlist_id"))]
     #[serde(rename = "playlistId")]
     pub playlist_id: String,
+
+    /// Default audio language for the video
+    #[serde(rename = "defaultAudioLanguage")]
+    pub default_audio_language: String,
+
+    /// Default language for the video
+    #[serde(rename = "defaultLanguage")]
+    pub default_language: String,
+
+    /// Recording date for the video
+    #[serde(rename = "recordingDate")]
+    pub recording_date: String,
 }
 
 impl CommonConfig {
@@ -239,7 +270,7 @@ impl CommonConfig {
     }
 }
 
-/// Configuration for a single video (legacy format).
+/// Configuration for a single video (individual format).
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct VideoConfig {
     /// Video title
@@ -269,11 +300,23 @@ pub struct VideoConfig {
     #[validate(custom(function = "validate_playlist_id"))]
     #[serde(rename = "playlistId")]
     pub playlist_id: String,
+
+    /// Default audio language for the video
+    #[serde(rename = "defaultAudioLanguage")]
+    pub default_audio_language: String,
+
+    /// Default language for the video
+    #[serde(rename = "defaultLanguage")]
+    pub default_language: String,
+
+    /// Recording date for the video
+    #[serde(rename = "recordingDate")]
+    pub recording_date: String,
 }
 
-/// Root model for legacy YAML format with videos array.
+/// Root model for individual YAML format with videos array.
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
-pub struct LegacyConfigRoot {
+pub struct IndividualConfigRoot {
     /// Test mode flag - if true, delete videos after upload
     #[serde(default = "bool::default")]
     pub test: bool,
@@ -364,5 +407,37 @@ mod tests {
         assert!(validate_playlist_id("PLAbCdEfGhIjKlMnOpQrStUvWxYz").is_ok());
         assert!(validate_playlist_id("invalid").is_err());
         assert!(validate_playlist_id("PL123").is_err()); // too short
+    }
+
+    #[test]
+    fn test_formatted_recording_date() {
+        let options = VideoUploadOptions {
+            file: "test.mp4".to_string(),
+            title: "Test".to_string(),
+            description: "Test".to_string(),
+            keywords: "test".to_string(),
+            category: 22,
+            privacy_status: "private".to_string(),
+            playlist_id: "PL1234567890123456".to_string(),
+            default_audio_language: "en".to_string(),
+            default_language: "en".to_string(),
+            recording_date: "2026-01-24".to_string(),
+        };
+
+        // Should convert YYYY-MM-DD to YYYY-MM-DDT00:00:00.000Z
+        assert_eq!(
+            options.formatted_recording_date(),
+            "2026-01-24T00:00:00.000Z"
+        );
+
+        // Already in timestamp format should remain unchanged
+        let options_with_timestamp = VideoUploadOptions {
+            recording_date: "2026-01-24T12:30:45.000Z".to_string(),
+            ..options
+        };
+        assert_eq!(
+            options_with_timestamp.formatted_recording_date(),
+            "2026-01-24T12:30:45.000Z"
+        );
     }
 }

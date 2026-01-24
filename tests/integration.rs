@@ -5,7 +5,8 @@
 
 use anyhow::Result;
 use rust_yt_uploader::{
-    BatchConfigRoot, CommonConfig, LegacyConfigRoot, PrivacyStatus, VideoCategory, youtube_client,
+    BatchConfigRoot, CommonConfig, IndividualConfigRoot, PrivacyStatus, VideoCategory,
+    youtube_client,
 };
 use std::io::Write;
 use tempfile::NamedTempFile;
@@ -19,7 +20,7 @@ fn create_test_video_file() -> NamedTempFile {
 }
 
 #[test]
-fn test_legacy_config_parsing() -> Result<()> {
+fn test_individual_config_parsing() -> Result<()> {
     let temp_file = create_test_video_file();
     let file_path = temp_file.path().to_string_lossy().to_string();
 
@@ -33,6 +34,9 @@ videos:
     category: Comedy
     privacyStatus: "private"
     playlistId: "PL1234567890123456"
+    defaultAudioLanguage: "en"
+    defaultLanguage: "en"
+    recordingDate: "2026-01-24"
   - title: "Test Video 2"
     description: "Another test video"
     keywords: "test,video,rust"
@@ -40,11 +44,14 @@ videos:
     category: ScienceTechnology
     privacyStatus: "unlisted"
     playlistId: "PL1234567890123456"
+    defaultAudioLanguage: "en"
+    defaultLanguage: "en"
+    recordingDate: "2026-01-25"
 "#,
         file_path, file_path
     );
 
-    let config: LegacyConfigRoot = serde_yaml_ng::from_str(&yaml_content)?;
+    let config: IndividualConfigRoot = serde_yaml_ng::from_str(&yaml_content)?;
 
     assert_eq!(config.videos.len(), 2);
     assert_eq!(config.videos[0].title, "Test Video 1");
@@ -70,6 +77,9 @@ common:
   category: HowtoStyle
   privacyStatus: "private"
   playlistId: "PL1234567890123456"
+  defaultAudioLanguage: "en"
+  defaultLanguage: "en"
+  recordingDate: "2026-01-24"
 
 titles:
   - "Episode 1: Introduction"
@@ -110,6 +120,9 @@ async fn test_config_validation() -> Result<()> {
             category: VideoCategory::PeopleBlogs,
             privacy_status: PrivacyStatus::Private,
             playlist_id: "PL1234567890123456".to_string(),
+            default_audio_language: "en".to_string(),
+            default_language: "en".to_string(),
+            recording_date: "2026-01-24".to_string(),
         },
         titles: vec!["Video 1".to_string()],
         files: vec![file_path.clone()],
@@ -127,6 +140,9 @@ async fn test_config_validation() -> Result<()> {
             category: VideoCategory::PeopleBlogs,
             privacy_status: PrivacyStatus::Private,
             playlist_id: "PL1234567890123456".to_string(),
+            default_audio_language: "en".to_string(),
+            default_language: "en".to_string(),
+            recording_date: "2026-01-24".to_string(),
         },
         titles: vec!["Video 1".to_string(), "Video 2".to_string()],
         files: vec![file_path],
@@ -259,6 +275,9 @@ async fn test_video_upload() -> Result<()> {
         category: 28,
         privacy_status: "private".to_string(),
         playlist_id: "PL_YOUR_TEST_PLAYLIST_ID".to_string(),
+        default_audio_language: "en".to_string(),
+        default_language: "en".to_string(),
+        recording_date: "2026-01-24".to_string(),
     };
 
     let video_id = uploader.upload_video(&options, false).await?;

@@ -12,11 +12,11 @@ pub mod youtube_client;
 // Re-export commonly used types
 pub use google_oauth::{Credentials, GoogleOAuth};
 pub use models::{
-    BatchConfigRoot, CommonConfig, ConfigFormat, LegacyConfigRoot, PrivacyStatus, RetryConfig,
+    BatchConfigRoot, CommonConfig, ConfigFormat, IndividualConfigRoot, PrivacyStatus, RetryConfig,
     VideoCategory, VideoConfig, VideoUploadOptions,
 };
 pub use youtube_client::{
-    YouTubeClient, upload_batch_concurrent, upload_batch_sequential, upload_legacy_sequential,
+    YouTubeClient, upload_batch_concurrent, upload_batch_sequential, upload_individual_sequential,
 };
 
 pub use retry::retry_with_backoff;

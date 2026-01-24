@@ -6,9 +6,9 @@
 
 use anyhow::Result;
 use clap::Parser;
-use rust_yt_uploader::{BatchConfigRoot, ConfigFormat, LegacyConfigRoot};
+use rust_yt_uploader::{BatchConfigRoot, ConfigFormat, IndividualConfigRoot};
 use rust_yt_uploader::{
-    upload_batch_concurrent, upload_batch_sequential, upload_legacy_sequential,
+    upload_batch_concurrent, upload_batch_sequential, upload_individual_sequential,
 };
 use std::path::PathBuf;
 use tracing::info;
@@ -21,7 +21,7 @@ use tracing::info;
 Upload videos to YouTube from a YAML configuration file.
 
 Supports two YAML schema formats:
-- Legacy: 'videos' array with per-video configuration
+- Individual: 'videos' array with per-video configuration
 - Batch: 'common' config + separate 'titles' and 'files' arrays
 
 Async mode uploads multiple videos concurrently for better performance.
@@ -50,7 +50,7 @@ struct Cli {
 /// * `config` - Raw YAML configuration as a string
 ///
 /// # Returns
-/// * `ConfigFormat` - Either Legacy or Batch
+/// * `ConfigFormat` - Either Individual or Batch
 ///
 /// # Errors
 /// * Returns error if schema cannot be determined
@@ -59,7 +59,7 @@ fn detect_yaml_schema(config: &str) -> Result<ConfigFormat> {
 
     if let Some(mapping) = value.as_mapping() {
         if mapping.contains_key("videos") {
-            return Ok(ConfigFormat::Legacy);
+            return Ok(ConfigFormat::Individual);
         }
 
         if mapping.contains_key("common")
@@ -71,7 +71,7 @@ fn detect_yaml_schema(config: &str) -> Result<ConfigFormat> {
     }
 
     anyhow::bail!(
-        "Unable to determine YAML schema. Expected either 'videos' key (legacy) or 'common', 'titles', and 'files' keys (batch)."
+        "Unable to determine YAML schema. Expected either 'videos' key (individual) or 'common', 'titles', and 'files' keys (batch)."
     );
 }
 
@@ -104,12 +104,12 @@ async fn main() -> Result<()> {
     let schema_type = detect_yaml_schema(&config_content)?;
 
     match schema_type {
-        ConfigFormat::Legacy => {
-            info!("Detected legacy YAML schema format");
-            let config: LegacyConfigRoot = serde_yaml_ng::from_str(&config_content)
-                .map_err(|e| anyhow::anyhow!("Failed to parse legacy config: {}", e))?;
+        ConfigFormat::Individual => {
+            info!("Detected individual YAML schema format");
+            let config: IndividualConfigRoot = serde_yaml_ng::from_str(&config_content)
+                .map_err(|e| anyhow::anyhow!("Failed to parse individual config: {}", e))?;
 
-            upload_legacy_sequential(config, cli.progress).await?;
+            upload_individual_sequential(config, cli.progress).await?;
         }
         ConfigFormat::Batch => {
             info!("Detected batch YAML schema format");

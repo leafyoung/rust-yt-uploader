@@ -13,7 +13,12 @@ categories = [
     "authentication",
     "web-programming::http-client",
 ]
-exclude = ["client_secret.json", "youtube-oauth2.json", "example-config.yaml"]
+exclude = [
+    "client_secret.json",
+    "youtube-oauth2.json",
+    "example-batch-config.yaml",
+    "example-individual-config.yaml",
+]
 
 [lib]
 name = "rust_yt_uploader"

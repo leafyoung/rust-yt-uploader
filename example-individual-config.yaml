@@ -1,0 +1,36 @@
+# Example individual configuration file for Rust YouTube Uploader
+# This demonstrates the individual configuration format with individual video configs
+
+videos:
+  - title: "My First Video"
+    description: "This is my first video uploaded with Rust uploader"
+    keywords: "rust,youtube,first,video"
+    file: "/path/to/video1.mp4"
+    category: 22 # People & Blogs
+    privacyStatus: "private"
+    playlistId: "PL1234567890123456"
+    defaultAudioLanguage: "en"
+    defaultLanguage: "en"
+    recordingDate: "2026-01-24"
+
+  - title: "My Second Video"
+    description: "This is my second video with different settings"
+    keywords: "rust,youtube,second,tutorial"
+    file: "/path/to/video2.mp4"
+    category: 28 # Science & Technology
+    privacyStatus: "unlisted"
+    playlistId: "PL1234567890123456"
+    defaultAudioLanguage: "en"
+    defaultLanguage: "en"
+    recordingDate: "2026-01-25"
+
+  - title: "My Third Video"
+    description: "A public video for everyone to see"
+    keywords: "rust,youtube,public,demo"
+    file: "/path/to/video3.mp4"
+    category: 28 # Science & Technology
+    privacyStatus: "public"
+    playlistId: "PL1234567890123456"
+    defaultAudioLanguage: "en"
+    defaultLanguage: "en"
+    recordingDate: "2026-01-26"

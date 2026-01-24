@@ -16,7 +16,7 @@ use tracing::{error, info, warn};
 use url::Url;
 
 use crate::google_oauth::GoogleOAuth;
-use crate::models::{BatchConfigRoot, LegacyConfigRoot, RetryConfig, VideoUploadOptions};
+use crate::models::{BatchConfigRoot, IndividualConfigRoot, RetryConfig, VideoUploadOptions};
 use crate::retry::retry_with_backoff;
 use validator::Validate;
 
@@ -129,7 +129,7 @@ pub fn build_youtube_direct_upload_url() -> String {
     // Add query parameters for direct media upload
     url.query_pairs_mut()
         .append_pair("uploadType", "multipart")
-        .append_pair("part", "snippet,status");
+        .append_pair("part", "snippet,status,recordingDetails");
 
     url.to_string()
 }
@@ -311,10 +311,15 @@ impl YouTubeClient {
                 "title": options.title,
                 "description": options.description,
                 "tags": tags,
-                "categoryId": options.category.to_string()
+                "categoryId": options.category.to_string(),
+                "defaultLanguage": options.default_language,
+                "defaultAudioLanguage": options.default_audio_language
             },
             "status": {
                 "privacyStatus": options.privacy_status
+            },
+            "recordingDetails": {
+                "recordingDate": options.formatted_recording_date()
             }
         });
 
@@ -619,9 +624,9 @@ impl YouTubeClient {
     }
 }
 
-/// Upload videos using legacy schema format (sequential).
-pub async fn upload_legacy_sequential(
-    config: LegacyConfigRoot,
+/// Upload videos using individual schema format (sequential).
+pub async fn upload_individual_sequential(
+    config: IndividualConfigRoot,
     _show_progress: bool,
 ) -> Result<()> {
     // Validate configuration
@@ -630,7 +635,7 @@ pub async fn upload_legacy_sequential(
         .map_err(|e| anyhow!("Configuration validation failed: {}", e))?;
 
     info!(
-        "Processing {} video(s) using legacy schema",
+        "Processing {} video(s) using individual schema",
         config.videos.len()
     );
 
@@ -643,12 +648,15 @@ pub async fn upload_legacy_sequential(
 
         let options = VideoUploadOptions {
             file: video.file.clone(),
-            title: video.title.clone(), // Legacy format uses title as-is
+            title: video.title.clone(), // Individual format uses title as-is
             description: video.description.clone(),
             keywords: video.keywords.clone(),
             category: video.category.as_u32(),
             privacy_status: video.privacy_status.as_ref().to_string(),
             playlist_id: video.playlist_id.clone(),
+            default_audio_language: video.default_audio_language.clone(),
+            default_language: video.default_language.clone(),
+            recording_date: video.recording_date.clone(),
         };
 
         match uploader.upload_video(&options, config.test).await {
@@ -690,6 +698,9 @@ pub async fn upload_batch_sequential(config: BatchConfigRoot, show_progress: boo
             category: config.common.category.as_u32(),
             privacy_status: config.common.privacy_status.as_ref().to_string(),
             playlist_id: config.common.playlist_id.clone(),
+            default_audio_language: config.common.default_audio_language.clone(),
+            default_language: config.common.default_language.clone(),
+            recording_date: config.common.recording_date.clone(),
         };
 
         // Create uploader with progress bar for this video if progress is enabled
@@ -756,6 +767,9 @@ pub async fn upload_batch_concurrent(
     let common_prefix = Arc::new(config.common.prefix.clone());
     let common_category = config.common.category.as_u32();
     let common_privacy_status = Arc::new(config.common.privacy_status.as_ref().to_string());
+    let common_default_audio_language = Arc::new(config.common.default_audio_language.clone());
+    let common_default_language = Arc::new(config.common.default_language.clone());
+    let common_recording_date = Arc::new(config.common.recording_date.clone());
     let test_mode = config.test;
     let titles_len = config.titles.len();
 
@@ -773,6 +787,9 @@ pub async fn upload_batch_concurrent(
             let playlist_id = common_playlist_id.clone();
             let prefix = common_prefix.clone();
             let privacy_status = common_privacy_status.clone();
+            let default_audio_language = common_default_audio_language.clone();
+            let default_language = common_default_language.clone();
+            let recording_date = common_recording_date.clone();
 
             async move {
                 let _permit = semaphore.acquire().await.unwrap();
@@ -789,6 +806,9 @@ pub async fn upload_batch_concurrent(
                     category: common_category,
                     privacy_status: privacy_status.to_string(),
                     playlist_id: playlist_id.to_string(),
+                    default_audio_language: default_audio_language.to_string(),
+                    default_language: default_language.to_string(),
+                    recording_date: recording_date.to_string(),
                 };
 
                 let result = uploader.upload_video(&options, test_mode).await;
@@ -832,6 +852,9 @@ mod tests {
             category: VideoCategory::PeopleBlogs.as_u32(),
             privacy_status: "private".to_string(),
             playlist_id: "PL1234567890123456".to_string(),
+            default_audio_language: "en".to_string(),
+            default_language: "en".to_string(),
+            recording_date: "2026-01-24T00:00:00.000Z".to_string(),
         };
 
         assert_eq!(options.title, "Test Video");
@@ -840,7 +863,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_legacy_config_validation() {
+    async fn test_individual_config_validation() {
         let temp_file = create_test_video_file();
         let file_path = temp_file.path().to_string_lossy().to_string();
 
@@ -852,9 +875,12 @@ mod tests {
             category: VideoCategory::PeopleBlogs,
             privacy_status: PrivacyStatus::Private,
             playlist_id: "PL1234567890123456".to_string(),
+            default_audio_language: "en".to_string(),
+            default_language: "en".to_string(),
+            recording_date: "2026-01-24T00:00:00.000Z".to_string(),
         };
 
-        let config = LegacyConfigRoot {
+        let config = IndividualConfigRoot {
             test: false,
             videos: vec![video_config],
         };
@@ -874,6 +900,9 @@ mod tests {
             category: VideoCategory::PeopleBlogs,
             privacy_status: PrivacyStatus::Private,
             playlist_id: "PL1234567890123456".to_string(),
+            default_audio_language: "en".to_string(),
+            default_language: "en".to_string(),
+            recording_date: "2026-01-24T00:00:00.000Z".to_string(),
         };
 
         let config = BatchConfigRoot {
