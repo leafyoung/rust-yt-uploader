@@ -53,6 +53,7 @@ git clone https://github.com/leafyoung/rust-yt-uploader
 cd rust-yt-uploader
 cargo build --release --bin yt-upload
 cargo build --release --bin yt-list
+cargo build --release --bin yt-update-lang
 ```
 
 The binaries will be available after building.
@@ -264,7 +265,61 @@ yt-list --format jsonl | jq -r '[.id, .title] | join(": ")'
 yt-list --format json --output my_videos_backup.json
 ```
 
-## Performance
+#### yt-update-lang: Update Language Metadata
+
+The `yt-update-lang` tool automatically updates language metadata for all public videos in your channel. It sets:
+
+- `defaultLanguage`: zh (Chinese)
+- `defaultAudioLanguage`: zh-Hans (Simplified Chinese)
+
+For any videos that don't already have these values set.
+
+**Basic Usage:**
+
+```bash
+# Show what would be updated (dry run)
+yt-update-lang --dry-run
+
+# Update all public videos with language metadata
+yt-update-lang
+
+# Verbose mode - show each video being processed
+yt-update-lang --verbose
+
+# Only update videos with no language metadata at all
+yt-update-lang --only-empty
+```
+
+**Features:**
+
+- **Dry Run Mode** (`--dry-run`): Preview which videos would be updated without making changes
+- **Verbose Output** (`--verbose`): Show detailed information about each video being updated
+- **Smart Filtering** (`--only-empty`): Only update videos with completely empty language fields
+- **Rate Limiting**: Automatically adds small delays between updates to avoid API rate limits
+- **Progress Tracking**: Shows progress and summary of successful/failed updates
+
+**Examples:**
+
+```bash
+# Preview changes before applying
+yt-update-lang --dry-run
+
+# Update with verbose output to see what's happening
+yt-update-lang --verbose
+
+# Combine with yt-list to verify your videos first
+yt-list --status public --format json | jq '.[] | {id, title, default_language, default_audio_language}'
+
+# Then update them
+yt-update-lang
+```
+
+**Use Cases:**
+
+1. **Batch Language Setup** - Set correct language metadata after bulk uploads
+2. **Content Localization** - Ensure Chinese content is properly marked as such
+3. **Accessibility** - Help YouTube properly display captions and audio tracks
+4. **Content Organization** - Maintain consistent metadata across your channel
 
 ### Key Dependencies
 

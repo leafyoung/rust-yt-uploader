@@ -31,6 +31,10 @@ path = "src/bin/yt_upload.rs"
 name = "yt-list"
 path = "src/bin/yt_list.rs"
 
+[[bin]]
+name = "yt-update-lang"
+path = "src/bin/yt_update_lang.rs"
+
 [features]
 default = []
 # default = ["use-yup-oauth2"]

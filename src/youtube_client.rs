@@ -817,6 +817,99 @@ impl YouTubeClient {
 
         Ok(videos)
     }
+
+    /// Update video metadata (snippet and recording details).
+    ///
+    /// This method updates the specified video's metadata including title, description,
+    /// language settings, and recording date.
+    ///
+    /// # Arguments
+    /// * `video_id` - The YouTube video ID to update
+    /// * `default_language` - Optional default language code (e.g., "zh", "en")
+    /// * `default_audio_language` - Optional default audio language code (e.g., "zh-Hans", "en")
+    ///
+    /// # Returns
+    /// * Result indicating success or failure
+    ///
+    /// # API Endpoint
+    /// PUT <https://www.googleapis.com/youtube/v3/videos?part=snippet,recordingDetails>
+    pub async fn update_video(
+        &self,
+        video_id: &str,
+        default_language: Option<&str>,
+        default_audio_language: Option<&str>,
+    ) -> Result<()> {
+        info!("Updating video {} with language settings", video_id);
+
+        // First, fetch the current video details
+        let endpoint = format!("videos?part=snippet,recordingDetails&id={}", video_id);
+
+        let response = self.client.get(&endpoint).await?.send().await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "Failed to fetch video details with status {}: {}",
+                status,
+                text
+            ));
+        }
+
+        #[derive(Deserialize)]
+        struct VideoResponse {
+            items: Vec<serde_json::Value>,
+        }
+
+        let video_response: VideoResponse = response.json().await?;
+
+        if video_response.items.is_empty() {
+            return Err(anyhow!("Video {} not found", video_id));
+        }
+
+        let mut video_item = video_response.items[0].clone();
+
+        // Update the snippet part with language settings
+        if let Some(snippet) = video_item
+            .get_mut("snippet")
+            .and_then(|s| s.as_object_mut())
+        {
+            if let Some(lang) = default_language {
+                snippet.insert("defaultLanguage".to_string(), json!(lang));
+            }
+            if let Some(audio_lang) = default_audio_language {
+                snippet.insert("defaultAudioLanguage".to_string(), json!(audio_lang));
+            }
+        }
+
+        // Remove unnecessary fields for update
+        if let Some(obj) = video_item.as_object_mut() {
+            obj.remove("kind");
+            obj.remove("etag");
+        }
+
+        // Send PUT request to update the video
+        let response = self
+            .client
+            .put("videos?part=snippet,recordingDetails")
+            .await?
+            .json(&video_item)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "Failed to update video with status {}: {}",
+                status,
+                text
+            ));
+        }
+
+        info!("Successfully updated video: {}", video_id);
+        Ok(())
+    }
 }
 
 /// Upload videos using individual schema format (sequential).
