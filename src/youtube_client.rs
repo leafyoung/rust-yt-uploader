@@ -7,7 +7,7 @@
 use anyhow::{Result, anyhow};
 use futures::future::try_join_all;
 use indicatif::{ProgressBar, ProgressStyle};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -132,6 +132,25 @@ pub fn build_youtube_direct_upload_url() -> String {
         .append_pair("part", "snippet,status,recordingDetails");
 
     url.to_string()
+}
+
+/// Video details for listing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VideoDetails {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub status: String,
+    pub upload_date: String,
+    #[serde(rename = "categoryId")]
+    pub category_id: String,
+    pub tags: Vec<String>,
+    #[serde(rename = "defaultLanguage")]
+    pub default_language: Option<String>,
+    #[serde(rename = "defaultAudioLanguage")]
+    pub default_audio_language: Option<String>,
+    #[serde(rename = "recordingDate")]
+    pub recording_date: Option<String>,
 }
 
 /// YouTube video uploader
@@ -621,6 +640,182 @@ impl YouTubeClient {
             video_id, playlist_id
         );
         Ok(())
+    }
+
+    /// Fetch all videos from the user's channel.
+    ///
+    /// This method retrieves all videos from the authenticated user's channel
+    /// with their details including video ID, title, description, status, dates, etc.
+    ///
+    /// # Returns
+    /// * Result containing a vector of VideoDetails
+    ///
+    /// # API Endpoint
+    /// GET <https://www.googleapis.com/youtube/v3/search?part=snippet&forMine=true&type=video&maxResults=50&pageToken={pageToken}>
+    /// GET <https://www.googleapis.com/youtube/v3/videos?part=snippet,status,recordingDetails&id={video_ids}>
+    pub async fn list_all_videos(&self) -> Result<Vec<VideoDetails>> {
+        info!("Fetching all videos from user's channel");
+
+        let mut all_videos = Vec::new();
+        let mut page_token = None;
+
+        loop {
+            // Build the search endpoint with pagination
+            let mut endpoint =
+                String::from("search?part=snippet&forMine=true&type=video&maxResults=50");
+            if let Some(token) = &page_token {
+                endpoint.push_str(&format!("&pageToken={}", token));
+            }
+
+            let response = self.client.get(&endpoint).await?.send().await?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let text = response.text().await.unwrap_or_default();
+                return Err(anyhow!(
+                    "Failed to list videos with status {}: {}",
+                    status,
+                    text
+                ));
+            }
+
+            #[derive(Deserialize)]
+            struct SearchResponse {
+                items: Vec<SearchItem>,
+                #[serde(rename = "nextPageToken")]
+                next_page_token: Option<String>,
+            }
+
+            #[derive(Deserialize)]
+            struct SearchItem {
+                id: VideoId,
+            }
+
+            #[derive(Deserialize)]
+            struct VideoId {
+                #[serde(rename = "videoId")]
+                video_id: String,
+            }
+
+            let search_response: SearchResponse = response.json().await?;
+
+            if search_response.items.is_empty() {
+                break;
+            }
+
+            // Extract video IDs from search results
+            let video_ids: Vec<String> = search_response
+                .items
+                .iter()
+                .map(|item| item.id.video_id.clone())
+                .collect();
+
+            // Fetch detailed information for these videos
+            let video_details = self.fetch_video_details(&video_ids).await?;
+            all_videos.extend(video_details);
+
+            // Check if there are more pages
+            page_token = search_response.next_page_token;
+            if page_token.is_none() {
+                break;
+            }
+        }
+
+        info!("Successfully fetched {} videos", all_videos.len());
+        Ok(all_videos)
+    }
+
+    /// Fetch detailed information for a list of video IDs.
+    ///
+    /// # Arguments
+    /// * `video_ids` - Vector of YouTube video IDs
+    ///
+    /// # Returns
+    /// * Result containing a vector of VideoDetails
+    async fn fetch_video_details(&self, video_ids: &[String]) -> Result<Vec<VideoDetails>> {
+        if video_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let ids_string = video_ids.join(",");
+        let endpoint = format!(
+            "videos?part=snippet,status,recordingDetails&id={}",
+            ids_string
+        );
+
+        let response = self.client.get(&endpoint).await?.send().await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "Failed to fetch video details with status {}: {}",
+                status,
+                text
+            ));
+        }
+
+        #[derive(Deserialize)]
+        struct VideoResponse {
+            items: Vec<VideoItem>,
+        }
+
+        #[derive(Deserialize)]
+        struct VideoItem {
+            id: String,
+            snippet: VideoSnippetFull,
+            status: VideoStatus,
+            #[serde(rename = "recordingDetails")]
+            recording_details: Option<RecordingDetails>,
+        }
+
+        #[derive(Deserialize)]
+        struct VideoSnippetFull {
+            title: String,
+            description: String,
+            #[serde(rename = "categoryId")]
+            category_id: String,
+            #[serde(rename = "publishedAt")]
+            published_at: String,
+            tags: Option<Vec<String>>,
+            #[serde(rename = "defaultLanguage")]
+            default_language: Option<String>,
+            #[serde(rename = "defaultAudioLanguage")]
+            default_audio_language: Option<String>,
+        }
+
+        #[derive(Deserialize)]
+        struct VideoStatus {
+            #[serde(rename = "privacyStatus")]
+            privacy_status: String,
+        }
+
+        #[derive(Deserialize)]
+        struct RecordingDetails {
+            #[serde(rename = "recordingDate")]
+            recording_date: Option<String>,
+        }
+
+        let video_response: VideoResponse = response.json().await?;
+
+        let videos = video_response
+            .items
+            .into_iter()
+            .map(|item| VideoDetails {
+                id: item.id,
+                title: item.snippet.title,
+                description: item.snippet.description,
+                status: item.status.privacy_status,
+                upload_date: item.snippet.published_at,
+                category_id: item.snippet.category_id,
+                tags: item.snippet.tags.unwrap_or_default(),
+                default_language: item.snippet.default_language,
+                default_audio_language: item.snippet.default_audio_language,
+                recording_date: item.recording_details.and_then(|rd| rd.recording_date),
+            })
+            .collect();
+
+        Ok(videos)
     }
 }
 

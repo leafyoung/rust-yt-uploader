@@ -52,9 +52,10 @@ The first time you run the uploader, it will:
 git clone https://github.com/leafyoung/rust-yt-uploader
 cd rust-yt-uploader
 cargo build --release --bin yt-upload
+cargo build --release --bin yt-list
 ```
 
-The binary will be available at `target/release/rust-yt-upload`.
+The binaries will be available after building.
 
 ## Usage
 
@@ -182,18 +183,85 @@ Example: `PL1234567890123456`
 
 ### As a CLI Tool
 
+#### yt-upload: Upload Videos
+
 ```bash
 # Sequential upload (default)
-cargo run --bin yt-upload --file config.yaml
+yt-upload --file config.yaml
 
 # Sequential upload with progress bars
-cargo run --bin yt-upload --file config.yaml --progress
+yt-upload --file config.yaml --progress
 
 # Concurrent upload (3 concurrent by default)
-cargo run --bin yt-upload --file config.yaml --async
+yt-upload --file config.yaml --async
 
 # Custom concurrency level
-cargo run --bin yt-upload --file config.yaml --async --concurrent 5
+yt-upload --file config.yaml --async --concurrent 5
+```
+
+#### yt-list: List and Export Videos
+
+The `yt-list` tool lists all videos from your YouTube channel with comprehensive metadata. This is useful for:
+
+1. **Downloading videos** - Get video IDs for download tools
+2. **Updating metadata** - Export video info to update recording date, language, and audio language
+
+**Basic Usage:**
+
+```bash
+# List all videos in table format (default)
+yt-list
+
+# Export as JSON (for programmatic access)
+yt-list --format json
+
+# Export as JSONL (one video per line, useful for piping)
+yt-list --format jsonl
+
+# Save to file instead of stdout
+yt-list --format json --output videos.json
+
+# Show only video IDs (one per line)
+yt-list --ids-only
+
+# Filter by privacy status
+yt-list --status private
+yt-list --status public
+yt-list --status unlisted
+```
+
+**Output Formats:**
+
+- **table** (default): Human-readable table with video ID, title, status, and recording date
+- **json**: Single JSON array containing all videos
+- **jsonl**: JSON Lines format - one JSON object per line (great for piping to other tools)
+
+**Video Details Exported:**
+
+Each video includes:
+
+- `id`: YouTube video ID (needed for downloading)
+- `title`: Video title
+- `description`: Video description
+- `status`: Privacy status (public, private, unlisted)
+- `upload_date`: When the video was uploaded
+- `recording_date`: When the video was recorded (if set)
+- `category_id`: YouTube category ID
+- `tags`: Video tags/keywords
+- `default_language`: Default language for the video
+- `default_audio_language`: Default audio language for the video
+
+**Examples:**
+
+```bash
+# Export public videos to JSON and pipe to jq for further processing
+yt-list --format json --status public | jq '.[].id'
+
+# Extract video IDs and titles for batch download
+yt-list --format jsonl | jq -r '[.id, .title] | join(": ")'
+
+# Save all video metadata for backup
+yt-list --format json --output my_videos_backup.json
 ```
 
 ## Performance

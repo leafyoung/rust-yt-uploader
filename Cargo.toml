@@ -27,6 +27,10 @@ name = "rust_yt_uploader"
 name = "yt-upload"
 path = "src/bin/yt_upload.rs"
 
+[[bin]]
+name = "yt-list"
+path = "src/bin/yt_list.rs"
+
 [features]
 default = []
 # default = ["use-yup-oauth2"]
