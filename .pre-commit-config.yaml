@@ -1,0 +1,66 @@
+# Pre-commit hooks for Rust YouTube Uploader
+# See https://pre-commit.com for more information
+# Install: pip install pre-commit
+# Setup: pre-commit install
+# Run manually: pre-commit run --all-files
+
+repos:
+  - repo: local
+    hooks:
+      # Run cargo fmt to check formatting
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt -- --check
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      # Run cargo clippy to catch common mistakes
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --all-targets --all-features -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      # Run cargo test to ensure all tests pass
+      - id: cargo-test
+        name: cargo test
+        entry: cargo test --all-features
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+  # Generic pre-commit hooks for non-Rust files
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      # Check for large files
+      - id: check-added-large-files
+        args: ['--maxkb=10000']
+
+      # Check YAML files syntax
+      - id: check-yaml
+
+      # Check JSON files syntax
+      - id: check-json
+
+      # Check TOML files syntax
+      - id: check-toml
+
+      # Fix trailing whitespace
+      - id: trailing-whitespace
+        exclude: ^(tests/|fixtures/)
+
+      # Fix end of files
+      - id: end-of-file-fixer
+
+      # Detect merge conflict markers
+      - id: check-merge-conflict
+
+      # Check that scripts with shebangs are executable
+      - id: check-executables-have-shebangs
+
+      # Prevent commits to main/master branch (commented out to allow commits to main)
+      # - id: no-commit-to-branch
+      #   args: ['--branch', 'main', '--branch', 'master']

@@ -35,6 +35,10 @@ path = "src/bin/yt_list.rs"
 name = "yt-update-lang"
 path = "src/bin/yt_update_lang.rs"
 
+[[bin]]
+name = "yt-update-date"
+path = "src/bin/yt_update_date.rs"
+
 [features]
 default = []
 # default = ["use-yup-oauth2"]
@@ -82,6 +86,7 @@ base64 = "0.22.1"
 urlencoding = "2.1.3"
 open = "5.3.3"
 tiny_http = "0.12.0"
+tempfile = "3.24.0"
 
 # File handling
 mime = "0.3.17"

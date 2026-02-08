@@ -4,7 +4,6 @@
 //! supporting both individual and batch YAML configuration formats.
 
 use anyhow::{Result, anyhow};
-use futures::future::try_join_all;
 use rand::Rng;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -223,6 +222,19 @@ fn validate_file_exists(file_path: &str) -> Result<(), ValidationError> {
     }
 }
 
+/// Custom validation function for file existence with multiple files
+fn validate_files_exist(file_paths: &[String]) -> Result<(), ValidationError> {
+    for file_path in file_paths {
+        let expanded_path = shellexpand::tilde(file_path);
+        if !Path::new(expanded_path.as_ref()).exists() {
+            let mut err = ValidationError::new("file_does_not_exist");
+            err.add_param(std::borrow::Cow::from("file_path"), &file_path);
+            return Err(err);
+        }
+    }
+    Ok(())
+}
+
 /// Common configuration shared across multiple videos.
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct CommonConfig {
@@ -347,25 +359,66 @@ pub struct BatchConfigRoot {
 }
 
 impl BatchConfigRoot {
+    /// Parse files entries into Vec<Vec<String>> (each entry can have multiple files separated by comma, semicolon, or space)
+    pub fn parse_files(&self) -> Vec<Vec<String>> {
+        self.files
+            .iter()
+            .map(|file_entry| {
+                file_entry
+                    .split([',', ';', ' ', '\t'])
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .collect()
+            })
+            .collect()
+    }
+
     /// Validate that files exist and titles/files have matching lengths
     pub async fn validate_files_and_lengths(&self) -> Result<()> {
-        // Check that titles and files have same length
+        // Check that titles and files entries have same length
         if self.titles.len() != self.files.len() {
             return Err(anyhow!(
-                "Mismatch between titles and files: {} titles != {} files",
+                "Mismatch between titles and files: {} titles != {} files entries",
                 self.titles.len(),
                 self.files.len()
             ));
         }
 
-        // Check that all files exist (in parallel)
-        let file_checks: Vec<_> = self
-            .files
-            .iter()
-            .map(|file_path| async move { validate_file_exists(file_path) })
-            .collect();
+        let parsed_files = self.parse_files();
 
-        try_join_all(file_checks).await?;
+        // Check that each file entry has at least one file
+        for (idx, file_entry) in parsed_files.iter().enumerate() {
+            if file_entry.is_empty() {
+                return Err(anyhow!(
+                    "Files entry {} is empty or contains only whitespace",
+                    idx + 1
+                ));
+            }
+        }
+
+        // Check that all files exist
+        for (idx, file_entry) in parsed_files.iter().enumerate() {
+            if let Err(e) = validate_files_exist(file_entry) {
+                return Err(anyhow!("Files entry {} validation failed: {}", idx + 1, e));
+            }
+        }
+
+        // Check that all files are unique (only in non-test mode)
+        if !self.test {
+            let mut seen_files = std::collections::HashSet::new();
+            for file_entry in parsed_files.iter() {
+                for file_path in file_entry {
+                    let expanded_path = shellexpand::tilde(file_path);
+                    if !seen_files.insert(expanded_path.as_ref().to_string()) {
+                        return Err(anyhow!(
+                            "Duplicate file found: '{}' appears multiple times",
+                            file_path
+                        ));
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 }
@@ -438,6 +491,43 @@ mod tests {
         assert_eq!(
             options_with_timestamp.formatted_recording_date(),
             "2026-01-24T12:30:45.000Z"
+        );
+    }
+
+    #[test]
+    fn test_parse_files_with_separators() {
+        let config = BatchConfigRoot {
+            test: false,
+            common: CommonConfig {
+                prefix: "Test".to_string(),
+                keywords: "test".to_string(),
+                category: VideoCategory::PeopleBlogs,
+                privacy_status: PrivacyStatus::Private,
+                playlist_id: "PL1234567890123456".to_string(),
+                default_audio_language: "en".to_string(),
+                default_language: "en".to_string(),
+                recording_date: "2026-01-24".to_string(),
+            },
+            titles: vec!["Video 1".to_string(), "Video 2".to_string()],
+            files: vec![
+                "/path/to/video1.mp4".to_string(),
+                "/path/to/part1.mp4;/path/to/part2.mp4".to_string(),
+                "/path/to/video3.mp4, /path/to/video3_extra.mp4".to_string(),
+                "/path/to/video4a.mp4 /path/to/video4b.mp4".to_string(),
+            ],
+        };
+
+        let parsed = config.parse_files();
+        assert_eq!(parsed.len(), 4);
+        assert_eq!(parsed[0], vec!["/path/to/video1.mp4"]);
+        assert_eq!(parsed[1], vec!["/path/to/part1.mp4", "/path/to/part2.mp4"]);
+        assert_eq!(
+            parsed[2],
+            vec!["/path/to/video3.mp4", "/path/to/video3_extra.mp4"]
+        );
+        assert_eq!(
+            parsed[3],
+            vec!["/path/to/video4a.mp4", "/path/to/video4b.mp4"]
         );
     }
 }

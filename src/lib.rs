@@ -6,7 +6,9 @@
 
 pub mod google_oauth;
 pub mod models;
+pub mod progress_stream;
 pub mod retry;
+pub mod video_process;
 pub mod youtube_client;
 
 // Re-export commonly used types
@@ -15,6 +17,7 @@ pub use models::{
     BatchConfigRoot, CommonConfig, ConfigFormat, IndividualConfigRoot, PrivacyStatus, RetryConfig,
     VideoCategory, VideoConfig, VideoUploadOptions,
 };
+pub use video_process::merge_videos_with_ffmpeg;
 pub use youtube_client::{
     VideoDetails, YouTubeClient, upload_batch_concurrent, upload_batch_sequential,
     upload_individual_sequential,

@@ -35,6 +35,8 @@ titles:
   - "Episode 3: Your First Rust Program"
 
 # List of video file paths (must match titles length)
+# Each entry can contain multiple files separated by comma, semicolon, or space
+# (useful for merging multiple video files into one upload)
 files:
   - "/path/to/episode1.mp4"
   - "/path/to/episode2.mp4"

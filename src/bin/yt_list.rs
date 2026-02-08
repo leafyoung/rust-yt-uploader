@@ -2,7 +2,7 @@
 //!
 //! This binary lists all videos from the authenticated user's YouTube channel
 //! with their details including video ID, title, description, status, recording date,
-//! language, and audio language.
+//! duration, language, and audio language.
 //!
 //! The output can be formatted as JSON, JSONL, or table format for easy consumption
 //! by other tools (e.g., for downloading or updating video metadata).
@@ -50,7 +50,7 @@ List all videos from your YouTube channel with their details.
 The tool retrieves comprehensive information about each video including:
 - Video ID (needed for downloading)
 - Title, description, category, status
-- Upload date and recording date
+- Upload date, recording date, and duration
 - Default language and audio language
 - Tags/keywords
 
@@ -118,9 +118,9 @@ fn format_as_table(videos: &[rust_yt_uploader::VideoDetails]) -> String {
 
     // Header
     output.push_str(
-        "VIDEO ID             | TITLE                              | STATUS   | RECORDING DATE\n",
+        "VIDEO ID             | TITLE                              | DURATION | STATUS   | RECORDING DATE\n",
     );
-    output.push_str("--------------------+------------------------------------+----------+--------------------\n");
+    output.push_str("--------------------+------------------------------------+----------+----------+--------------------\n");
 
     // Rows
     for video in videos {
@@ -131,10 +131,11 @@ fn format_as_table(videos: &[rust_yt_uploader::VideoDetails]) -> String {
         };
 
         let recording_date = video.recording_date.as_deref().unwrap_or("N/A");
+        let duration = video.duration.as_deref().unwrap_or("N/A");
 
         output.push_str(&format!(
-            "{:<20} | {:<34} | {:<8} | {}\n",
-            video.id, title, video.status, recording_date
+            "{:<20} | {:<34} | {:<8} | {:<8} | {}\n",
+            video.id, title, duration, video.status, recording_date
         ));
     }
 
@@ -176,6 +177,9 @@ async fn main() -> Result<()> {
     }
 
     info!("Retrieved {} video(s)", videos.len());
+
+    // Display total count
+    println!("\nTotal videos: {}", videos.len());
 
     // Format output
     let output_text = if cli.ids_only {

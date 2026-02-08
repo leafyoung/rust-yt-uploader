@@ -167,7 +167,7 @@ async fn main() -> Result<()> {
         }
 
         match uploader
-            .update_video(&video.id, Some("zh"), Some("zh-Hans"))
+            .update_video_language(&video.id, Some("zh"), Some("zh-Hans"))
             .await
         {
             Ok(_) => {
@@ -175,7 +175,11 @@ async fn main() -> Result<()> {
             }
             Err(e) => {
                 failed_count.fetch_add(1, Ordering::Relaxed);
-                info!("Failed to update video {}: {}", video.id, e);
+                info!(
+                    "Failed to update video {}: {}, stopping updates",
+                    video.id, e
+                );
+                break;
             }
         }
 

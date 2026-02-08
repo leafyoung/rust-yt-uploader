@@ -40,7 +40,7 @@ struct Cli {
     concurrent: usize,
 
     /// Show progress bars during upload
-    #[arg(long)]
+    #[arg(long, default_value_t = true)]
     progress: bool,
 }
 

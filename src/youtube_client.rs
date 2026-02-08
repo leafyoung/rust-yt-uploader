@@ -11,13 +11,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tempfile::NamedTempFile;
 use tokio::sync::Semaphore;
 use tracing::{error, info, warn};
 use url::Url;
 
 use crate::google_oauth::GoogleOAuth;
 use crate::models::{BatchConfigRoot, IndividualConfigRoot, RetryConfig, VideoUploadOptions};
+use crate::progress_stream::ProgressStream;
 use crate::retry::retry_with_backoff;
+use crate::video_process::merge_videos_with_ffmpeg;
 use validator::Validate;
 
 /// Progress reporter trait for upload progress tracking
@@ -151,6 +154,7 @@ pub struct VideoDetails {
     pub default_audio_language: Option<String>,
     #[serde(rename = "recordingDate")]
     pub recording_date: Option<String>,
+    pub duration: Option<String>,
 }
 
 /// YouTube video uploader
@@ -311,9 +315,6 @@ impl YouTubeClient {
         let metadata = tokio::fs::metadata(&file_path).await?;
         let file_size = metadata.len();
 
-        // Get file content
-        let file_content = tokio::fs::read(&file_path).await?;
-
         // Report progress start
         self.progress_reporter
             .report_progress(0, file_size, file_path.to_string_lossy().as_ref());
@@ -342,7 +343,25 @@ impl YouTubeClient {
             }
         });
 
-        // Create multipart form data
+        // Open file and create streaming upload with progress tracking and bandwidth throttling
+        use tokio::fs::File;
+        use tokio_util::io::ReaderStream;
+
+        let file = File::open(&file_path).await?;
+        let stream = ReaderStream::new(file);
+
+        // Bandwidth limit: 80 MB/s = 80 * 1024 * 1024 bytes/s
+        const BANDWIDTH_LIMIT: u64 = 100 * 1024 * 1024;
+
+        let progress_stream = ProgressStream::new(
+            stream,
+            file_size,
+            self.progress_reporter.clone(),
+            file_path.to_string_lossy().to_string(),
+            Some(BANDWIDTH_LIMIT),
+        );
+
+        // Create multipart form data with streaming file upload
         let form = reqwest::multipart::Form::new()
             .part(
                 "snippet",
@@ -351,15 +370,18 @@ impl YouTubeClient {
             )
             .part(
                 "media",
-                reqwest::multipart::Part::bytes(file_content)
-                    .mime_str("video/*")?
-                    .file_name(
-                        file_path
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .to_string(),
-                    ),
+                reqwest::multipart::Part::stream_with_length(
+                    reqwest::Body::wrap_stream(progress_stream),
+                    file_size,
+                )
+                .mime_str("video/*")?
+                .file_name(
+                    file_path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string(),
+                ),
             );
 
         // Upload using multipart
@@ -739,7 +761,7 @@ impl YouTubeClient {
 
         let ids_string = video_ids.join(",");
         let endpoint = format!(
-            "videos?part=snippet,status,recordingDetails&id={}",
+            "videos?part=snippet,status,recordingDetails,contentDetails&id={}",
             ids_string
         );
 
@@ -767,6 +789,8 @@ impl YouTubeClient {
             status: VideoStatus,
             #[serde(rename = "recordingDetails")]
             recording_details: Option<RecordingDetails>,
+            #[serde(rename = "contentDetails")]
+            content_details: Option<ContentDetails>,
         }
 
         #[derive(Deserialize)]
@@ -796,6 +820,11 @@ impl YouTubeClient {
             recording_date: Option<String>,
         }
 
+        #[derive(Deserialize)]
+        struct ContentDetails {
+            duration: Option<String>,
+        }
+
         let video_response: VideoResponse = response.json().await?;
 
         let videos = video_response
@@ -812,6 +841,7 @@ impl YouTubeClient {
                 default_language: item.snippet.default_language,
                 default_audio_language: item.snippet.default_audio_language,
                 recording_date: item.recording_details.and_then(|rd| rd.recording_date),
+                duration: item.content_details.and_then(|cd| cd.duration),
             })
             .collect();
 
@@ -833,7 +863,7 @@ impl YouTubeClient {
     ///
     /// # API Endpoint
     /// PUT <https://www.googleapis.com/youtube/v3/videos?part=snippet,recordingDetails>
-    pub async fn update_video(
+    pub async fn update_video_language(
         &self,
         video_id: &str,
         default_language: Option<&str>,
@@ -910,6 +940,86 @@ impl YouTubeClient {
         info!("Successfully updated video: {}", video_id);
         Ok(())
     }
+
+    pub async fn update_video_recording_date(
+        &self,
+        video_id: &str,
+        recording_date: &str,
+    ) -> Result<()> {
+        info!(
+            "Updating video {} with recording date: {}",
+            video_id, recording_date
+        );
+
+        // First, fetch the current video details
+        let endpoint = format!("videos?part=snippet,recordingDetails&id={}", video_id);
+
+        let response = self.client.get(&endpoint).await?.send().await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "Failed to fetch video details with status {}: {}",
+                status,
+                text
+            ));
+        }
+
+        #[derive(Deserialize)]
+        struct VideoResponse {
+            items: Vec<serde_json::Value>,
+        }
+
+        let video_response: VideoResponse = response.json().await?;
+
+        if video_response.items.is_empty() {
+            return Err(anyhow!("Video {} not found", video_id));
+        }
+
+        let mut video_item = video_response.items[0].clone();
+
+        // Update or create the recordingDetails part with the recording date
+        if let Some(obj) = video_item.as_object_mut() {
+            let recording_details = obj
+                .entry("recordingDetails".to_string())
+                .or_insert_with(|| json!({}));
+
+            if let Some(details_obj) = recording_details.as_object_mut() {
+                details_obj.insert("recordingDate".to_string(), json!(recording_date));
+            }
+        } else {
+            return Err(anyhow!("Failed to parse video item as object"));
+        }
+
+        // Remove unnecessary fields for update
+        if let Some(obj) = video_item.as_object_mut() {
+            obj.remove("kind");
+            obj.remove("etag");
+        }
+
+        // Send PUT request to update the video
+        let response = self
+            .client
+            .put("videos?part=snippet,recordingDetails")
+            .await?
+            .json(&video_item)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "Failed to update video with status {}: {}",
+                status,
+                text
+            ));
+        }
+
+        info!("Successfully updated video recording date: {}", video_id);
+        Ok(())
+    }
 }
 
 /// Upload videos using individual schema format (sequential).
@@ -973,13 +1083,35 @@ pub async fn upload_batch_sequential(config: BatchConfigRoot, show_progress: boo
         config.titles.len()
     );
 
-    for (idx, (title, file_path)) in config.titles.iter().zip(config.files.iter()).enumerate() {
+    let parsed_files = config.parse_files();
+
+    for (idx, (title, file_paths)) in config.titles.iter().zip(parsed_files.iter()).enumerate() {
         info!("Processing video {}/{}", idx + 1, config.titles.len());
 
         let full_title = format!("{}{}", config.common.prefix, title.trim());
 
+        let (file_to_upload, temp_file_holder) = if file_paths.len() > 1 {
+            info!("Merging {} files for video '{}'", file_paths.len(), title);
+
+            let extension = Path::new(file_paths[0].as_str())
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .unwrap_or("MTS");
+            let suffix = format!(".{}", extension);
+            let temp_file = NamedTempFile::with_suffix(&suffix)?;
+
+            merge_videos_with_ffmpeg(file_paths, temp_file.path())?;
+
+            (
+                temp_file.path().to_string_lossy().to_string(),
+                Some(temp_file),
+            )
+        } else {
+            (file_paths[0].clone(), None)
+        };
+
         let options = VideoUploadOptions {
-            file: file_path.clone(),
+            file: file_to_upload.clone(),
             title: full_title.clone(),
             description: full_title.clone(), // Use title as description
             keywords: config.common.keywords.clone(),
@@ -994,7 +1126,7 @@ pub async fn upload_batch_sequential(config: BatchConfigRoot, show_progress: boo
         // Create uploader with progress bar for this video if progress is enabled
         let uploader = if show_progress {
             // Get file size for progress bar
-            let file_path_expanded = shellexpand::tilde(&file_path);
+            let file_path_expanded = shellexpand::tilde(&file_to_upload);
             let file_path_obj = Path::new(file_path_expanded.as_ref());
             let metadata = tokio::fs::metadata(&file_path_obj).await?;
             let file_size = metadata.len();
@@ -1014,12 +1146,16 @@ pub async fn upload_batch_sequential(config: BatchConfigRoot, show_progress: boo
         };
 
         match uploader.upload_video(&options, config.test).await {
-            Ok(video_id) => info!("Successfully uploaded video: {}", video_id),
+            Ok(video_id) => {
+                info!("Successfully uploaded video: {}", video_id);
+            }
             Err(e) => {
                 error!("Failed to upload video '{}': {}", title, e);
                 return Err(e);
             }
         }
+
+        drop(temp_file_holder);
     }
 
     Ok(())
@@ -1049,6 +1185,9 @@ pub async fn upload_batch_concurrent(
         .map_err(|err| anyhow!("Failed to initialize YouTubeUploader: {}", err))?;
     let semaphore = Semaphore::new(max_concurrent);
 
+    // Parse files into Vec<Vec<String>>
+    let parsed_files = config.parse_files();
+
     // Extract common values to avoid repeated access (using Arc for efficient sharing)
     let common_keywords = Arc::new(config.common.keywords.clone());
     let common_playlist_id = Arc::new(config.common.playlist_id.clone());
@@ -1064,13 +1203,13 @@ pub async fn upload_batch_concurrent(
     let upload_tasks: Vec<_> = config
         .titles
         .iter()
-        .zip(config.files.iter())
+        .zip(parsed_files.iter())
         .enumerate()
-        .map(|(idx, (title, file_path))| {
+        .map(|(idx, (title, file_paths))| {
             let uploader = &uploader;
             let semaphore = &semaphore;
             let title = title.clone();
-            let file_path = file_path.clone();
+            let file_paths = file_paths.clone();
             let keywords = common_keywords.clone();
             let playlist_id = common_playlist_id.clone();
             let prefix = common_prefix.clone();
@@ -1086,8 +1225,29 @@ pub async fn upload_batch_concurrent(
 
                 let full_title = format!("{}{}", prefix, title.trim());
 
+                // Merge files if there are multiple
+                let (file_to_upload, temp_file_holder) = if file_paths.len() > 1 {
+                    info!("Merging {} files for video '{}'", file_paths.len(), title);
+
+                    let extension = Path::new(file_paths[0].as_str())
+                        .extension()
+                        .and_then(|ext| ext.to_str())
+                        .unwrap_or("MTS");
+                    let suffix = format!(".{}", extension);
+                    let temp_file = NamedTempFile::with_suffix(&suffix)?;
+
+                    merge_videos_with_ffmpeg(&file_paths, temp_file.path())?;
+
+                    (
+                        temp_file.path().to_string_lossy().to_string(),
+                        Some(temp_file),
+                    )
+                } else {
+                    (file_paths[0].clone(), None)
+                };
+
                 let options = VideoUploadOptions {
-                    file: file_path,
+                    file: file_to_upload.clone(),
                     title: full_title.clone(),
                     description: full_title,
                     keywords: keywords.to_string(),
@@ -1100,6 +1260,8 @@ pub async fn upload_batch_concurrent(
                 };
 
                 let result = uploader.upload_video(&options, test_mode).await;
+
+                drop(temp_file_holder);
 
                 match &result {
                     Ok(video_id) => {

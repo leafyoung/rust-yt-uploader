@@ -135,6 +135,9 @@ titles:
 files:
     - "/path/to/video1.mp4"
     - "/path/to/video2.mp4"
+    # Each entry can also contain multiple files separated by comma, semicolon, or space:
+    # - "/path/to/part1.mp4;/path/to/part2.mp4"
+    # - "/path/to/video3.mp4, /path/to/video3_extra.mp4"
 ```
 
 #### Individual Format
@@ -337,6 +340,60 @@ yt-update-lang
 - Store credentials securely with appropriate file permissions (600)
 - Regularly rotate OAuth tokens if needed
 - Use private/unlisted privacy settings for sensitive content
+
+## Development
+
+### Prerequisites
+
+- Rust 2024 edition or later
+- `pre-commit` for git hooks (optional but recommended)
+
+### Setting Up Pre-commit Hooks
+
+Pre-commit hooks automatically run linters, formatters, and tests before each commit:
+
+```bash
+# Install pre-commit (if not already installed)
+pip install pre-commit
+
+# Install the git hooks
+pre-commit install
+
+# Run hooks manually on all files
+pre-commit run --all-files
+
+# Update hooks to the latest version
+pre-commit autoupdate
+```
+
+The pre-commit configuration includes:
+
+- **cargo fmt** - Checks code formatting
+- **cargo clippy** - Runs the Rust linter
+- **cargo test** - Runs all tests
+- **Generic checks** - YAML/JSON syntax, trailing whitespace, merge conflicts, etc.
+
+### Manual Testing
+
+```bash
+# Format code
+cargo fmt
+
+# Check formatting without making changes
+cargo fmt -- --check
+
+# Run linter
+cargo clippy --all-targets --all-features
+
+# Run tests
+cargo test --all-features
+
+# Run tests with output
+cargo test --all-features -- --nocapture
+
+# Run specific test
+cargo test test_name
+```
 
 ## License
 
