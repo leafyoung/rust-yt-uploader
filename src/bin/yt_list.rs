@@ -72,10 +72,6 @@ struct Cli {
     #[arg(short, long)]
     output: Option<PathBuf>,
 
-    /// Show only videos with specific privacy status (public, private, unlisted)
-    #[arg(long)]
-    status: Option<String>,
-
     /// Show only video IDs (one per line)
     #[arg(long)]
     ids_only: bool,
@@ -168,18 +164,9 @@ async fn main() -> Result<()> {
     info!("Fetching videos from your channel");
 
     // Fetch all videos
-    let mut videos = uploader.list_all_videos().await?;
-
-    // Filter by status if requested
-    if let Some(status_filter) = cli.status {
-        info!("Filtering videos by status: {}", status_filter);
-        videos.retain(|v| v.status.to_lowercase() == status_filter.to_lowercase());
-    }
+    let videos = uploader.list_all_videos().await?;
 
     info!("Retrieved {} video(s)", videos.len());
-
-    // Display total count
-    println!("\nTotal videos: {}", videos.len());
 
     // Format output
     let output_text = if cli.ids_only {
