@@ -19,7 +19,7 @@ pub use models::{
 };
 pub use video_process::merge_videos_with_ffmpeg;
 pub use youtube_client::{
-    VideoDetails, YouTubeClient, upload_batch_concurrent, upload_batch_sequential,
+    CaptionDetails, VideoDetails, YouTubeClient, upload_batch_concurrent, upload_batch_sequential,
     upload_individual_sequential,
 };
 

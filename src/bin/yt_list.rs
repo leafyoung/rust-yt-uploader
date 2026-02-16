@@ -53,6 +53,7 @@ The tool retrieves comprehensive information about each video including:
 - Upload date, recording date, and duration
 - Default language and audio language
 - Tags/keywords
+- Available captions/subtitles
 
 Output formats:
 - json: All videos in a single JSON array
@@ -62,6 +63,7 @@ Output formats:
 This information can be used for:
 1. Downloading videos (using video IDs)
 2. Updating video metadata (recording date, language, audio language)
+3. Managing captions and subtitles
 "#)]
 struct Cli {
     /// Output format: json, jsonl, or table
@@ -75,6 +77,18 @@ struct Cli {
     /// Show only video IDs (one per line)
     #[arg(long)]
     ids_only: bool,
+
+    /// List available subtitles/captions for videos
+    #[arg(long)]
+    list_subtitles: bool,
+
+    /// Filter subtitles by video ID (requires --list-subtitles)
+    #[arg(long)]
+    video_id: Option<String>,
+
+    /// Filter subtitles by language code (e.g., 'en', 'zh', 'fr')
+    #[arg(long)]
+    language: Option<String>,
 }
 
 /// Initialize tracing/logging
@@ -147,6 +161,79 @@ fn format_as_ids_only(videos: &[rust_yt_uploader::VideoDetails]) -> String {
         .join("\n")
 }
 
+/// Format captions as JSON
+fn format_captions_as_json(
+    captions: &[(String, Vec<rust_yt_uploader::CaptionDetails>)],
+) -> Result<String> {
+    let captions_map: std::collections::HashMap<String, Vec<rust_yt_uploader::CaptionDetails>> =
+        captions.iter().cloned().collect();
+    Ok(serde_json::to_string_pretty(&captions_map)?)
+}
+
+/// Format captions as JSONL
+fn format_captions_as_jsonl(
+    captions: &[(String, Vec<rust_yt_uploader::CaptionDetails>)],
+) -> Result<String> {
+    let lines: Result<Vec<String>> = captions
+        .iter()
+        .map(|(video_id, caps)| {
+            serde_json::to_string(&serde_json::json!({
+                "videoId": video_id,
+                "captions": caps
+            }))
+            .map_err(|e| anyhow::anyhow!(e))
+        })
+        .collect();
+    Ok(lines?.join("\n"))
+}
+
+/// Format captions as table
+fn format_captions_as_table(
+    captions: &[(String, Vec<rust_yt_uploader::CaptionDetails>)],
+) -> String {
+    if captions.is_empty() {
+        return "No captions found.".to_string();
+    }
+
+    let mut output = String::new();
+
+    // Header
+    output.push_str(
+        "VIDEO ID             | LANGUAGE | AUTO-SYNCED | DRAFT | CLOSED CAPTIONS | LARGE | NAME\n",
+    );
+    output.push_str("--------------------+----------+-------------+-------+-----------------+-------+--------------------\n");
+
+    // Rows
+    for (video_id, caps) in captions {
+        if caps.is_empty() {
+            continue;
+        }
+
+        for (idx, cap) in caps.iter().enumerate() {
+            let auto_synced = cap.is_auto_synced.unwrap_or(false);
+            let is_draft = cap.is_draft.unwrap_or(false);
+            let is_cc = cap.is_cc.unwrap_or(false);
+            let is_large = cap.is_large.unwrap_or(false);
+            let name = cap.name.as_deref().unwrap_or("-");
+
+            let video_id_display = if idx == 0 { video_id.as_str() } else { "" };
+
+            output.push_str(&format!(
+                "{:<20} | {:<8} | {:<11} | {:<5} | {:<15} | {:<5} | {}\n",
+                video_id_display,
+                cap.language,
+                if auto_synced { "Yes" } else { "No" },
+                if is_draft { "Yes" } else { "No" },
+                if is_cc { "Yes" } else { "No" },
+                if is_large { "Yes" } else { "No" },
+                name
+            ));
+        }
+    }
+
+    output
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     init_logging();
@@ -161,30 +248,86 @@ async fn main() -> Result<()> {
     // Initialize YouTube client
     let uploader = YouTubeClient::new().await?;
 
-    info!("Fetching videos from your channel");
+    // Handle subtitle listing
+    if cli.list_subtitles {
+        info!("Fetching captions/subtitles");
 
-    // Fetch all videos
-    let videos = uploader.list_all_videos().await?;
+        let captions = if let Some(video_id) = &cli.video_id {
+            // List captions for a specific video
+            info!("Fetching captions for video: {}", video_id);
+            let caps = uploader.list_video_captions(video_id).await?;
 
-    info!("Retrieved {} video(s)", videos.len());
+            // Filter by language if specified
+            let filtered_caps = if let Some(lang) = &cli.language {
+                caps.into_iter().filter(|c| c.language == *lang).collect()
+            } else {
+                caps
+            };
 
-    // Format output
-    let output_text = if cli.ids_only {
-        format_as_ids_only(&videos)
-    } else {
-        match format {
-            OutputFormat::Json => format_as_json(&videos)?,
-            OutputFormat::Jsonl => format_as_jsonl(&videos)?,
-            OutputFormat::Table => format_as_table(&videos),
+            vec![(video_id.clone(), filtered_caps)]
+        } else {
+            // List captions for all videos
+            let all_captions = uploader.list_all_captions().await?;
+
+            // Filter by language if specified
+            if let Some(lang) = &cli.language {
+                all_captions
+                    .into_iter()
+                    .map(|(vid, caps)| {
+                        let filtered: Vec<_> =
+                            caps.into_iter().filter(|c| c.language == *lang).collect();
+                        (vid, filtered)
+                    })
+                    .filter(|(_, caps)| !caps.is_empty())
+                    .collect()
+            } else {
+                all_captions
+            }
+        };
+
+        info!("Retrieved captions for {} video(s)", captions.len());
+
+        // Format output
+        let output_text = match format {
+            OutputFormat::Json => format_captions_as_json(&captions)?,
+            OutputFormat::Jsonl => format_captions_as_jsonl(&captions)?,
+            OutputFormat::Table => format_captions_as_table(&captions),
+        };
+
+        // Write output
+        if let Some(output_path) = cli.output {
+            std::fs::write(&output_path, &output_text)?;
+            info!("Output written to: {}", output_path.display());
+        } else {
+            println!("{}", output_text);
         }
-    };
-
-    // Write output
-    if let Some(output_path) = cli.output {
-        std::fs::write(&output_path, &output_text)?;
-        info!("Output written to: {}", output_path.display());
     } else {
-        println!("{}", output_text);
+        // List videos
+        info!("Fetching videos from your channel");
+
+        // Fetch all videos
+        let videos = uploader.list_all_videos().await?;
+
+        info!("Retrieved {} video(s)", videos.len());
+
+        // Format output
+        let output_text = if cli.ids_only {
+            format_as_ids_only(&videos)
+        } else {
+            match format {
+                OutputFormat::Json => format_as_json(&videos)?,
+                OutputFormat::Jsonl => format_as_jsonl(&videos)?,
+                OutputFormat::Table => format_as_table(&videos),
+            }
+        };
+
+        // Write output
+        if let Some(output_path) = cli.output {
+            std::fs::write(&output_path, &output_text)?;
+            info!("Output written to: {}", output_path.display());
+        } else {
+            println!("{}", output_text);
+        }
     }
 
     info!("Done");
