@@ -62,6 +62,22 @@ async fn main() -> Result<()> {
 
     let client = YouTubeClient::new().await?;
 
+    // Check if content already exists in the description
+    println!("Checking for duplicate content in video description...");
+    let already_exists = client
+        .description_contains(&cli.video_id, additional_content)
+        .await?;
+
+    if already_exists {
+        println!();
+        println!("⚠ WARNING: Content already exists in video description!");
+        println!("Skipping update to prevent duplicate content.");
+        return Ok(());
+    }
+
+    println!("No duplicate found. Proceeding with update...");
+    println!();
+
     client
         .update_video_description(&cli.video_id, additional_content)
         .await?;

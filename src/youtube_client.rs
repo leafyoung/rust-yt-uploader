@@ -1132,6 +1132,70 @@ impl YouTubeClient {
         Ok(())
     }
 
+    /// Get the current description of a video.
+    ///
+    /// # Arguments
+    /// * `video_id` - The YouTube video ID
+    ///
+    /// # Returns
+    /// * Result containing the video description
+    ///
+    /// # API Endpoint
+    /// GET <https://www.googleapis.com/youtube/v3/videos?part=snippet&id={video_id}>
+    pub async fn get_video_description(&self, video_id: &str) -> Result<String> {
+        info!("Fetching description for video {}", video_id);
+
+        let endpoint = format!("videos?part=snippet&id={}", video_id);
+
+        let response = self.client.get(&endpoint).await?.send().await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "Failed to fetch video details with status {}: {}",
+                status,
+                text
+            ));
+        }
+
+        #[derive(Deserialize)]
+        struct VideoResponse {
+            items: Vec<VideoItem>,
+        }
+
+        #[derive(Deserialize)]
+        struct VideoItem {
+            snippet: VideoSnippet,
+        }
+
+        #[derive(Deserialize)]
+        struct VideoSnippet {
+            description: String,
+        }
+
+        let video_response: VideoResponse = response.json().await?;
+
+        if video_response.items.is_empty() {
+            return Err(anyhow!("Video {} not found", video_id));
+        }
+
+        Ok(video_response.items[0].snippet.description.clone())
+    }
+
+    /// Check if content already exists in the video description.
+    ///
+    /// # Arguments
+    /// * `video_id` - The YouTube video ID
+    /// * `content` - The content to check for
+    ///
+    /// # Returns
+    /// * Result containing true if content exists, false otherwise
+    pub async fn description_contains(&self, video_id: &str, content: &str) -> Result<bool> {
+        let description = self.get_video_description(video_id).await?;
+        Ok(description.contains(content))
+    }
+
     pub async fn update_video_tags(
         &self,
         video_id: &str,
