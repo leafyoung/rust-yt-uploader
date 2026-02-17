@@ -1,6 +1,6 @@
 [package]
 name = "rust-yt-uploader"
-version = "0.2.10"
+version = "0.2.11"
 edition = "2024"
 authors = ["Your Name <your.email@example.com>"]
 description = "High-performance YouTube video uploader in Rust with OAuth 2.0, concurrent uploads, and comprehensive validation"
@@ -44,12 +44,16 @@ name = "yt-upload-subtitle"
 path = "src/bin/yt_upload_subtitle.rs"
 
 [[bin]]
-name = "yt-update-description"
-path = "src/bin/yt_update_description.rs"
+name = "yt-append-description"
+path = "src/bin/yt_append_description.rs"
 
 [[bin]]
 name = "yt-add-tags"
 path = "src/bin/yt_add_tags.rs"
+
+[[bin]]
+name = "yt-add-pin-comment"
+path = "src/bin/yt_add_pin_comment.rs"
 
 [features]
 default = []

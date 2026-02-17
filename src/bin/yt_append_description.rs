@@ -4,9 +4,9 @@ use rust_yt_uploader::YouTubeClient;
 use std::fs;
 use std::path::Path;
 
-/// YouTube video description updater CLI
+/// YouTube video description appender CLI
 #[derive(Parser)]
-#[command(name = "yt-update-description")]
+#[command(name = "yt-append-description")]
 #[command(about = "Append content to video descriptions from a text file")]
 #[command(long_about = r#"
 Append content to YouTube video descriptions from a text file.
@@ -16,8 +16,8 @@ of specified YouTube videos. The existing description and new content are
 separated by a blank line (two newlines).
 
 Usage examples:
-  yt-update-description <video_id> <content_file.txt>
-  yt-update-description abc123 my_content.txt
+  yt-append-description <video_id> <content_file.txt>
+  yt-append-description abc123 my_content.txt
 "#)]
 struct Cli {
     /// YouTube video ID to update
@@ -53,6 +53,11 @@ async fn main() -> Result<()> {
 
     println!("Reading content from: {}", cli.content_file);
     println!("Updating video: {}", cli.video_id);
+    println!();
+    println!("Content to append:");
+    println!("─────────────────────────────────────────");
+    println!("{}", additional_content);
+    println!("─────────────────────────────────────────");
     println!();
 
     let client = YouTubeClient::new().await?;

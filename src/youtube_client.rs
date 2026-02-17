@@ -1438,6 +1438,144 @@ impl YouTubeClient {
 
         Ok(caption_id)
     }
+
+    /// Post a comment to a video with optional pinning.
+    ///
+    /// # Arguments
+    /// * `video_id` - The YouTube video ID
+    /// * `comment_text` - The text content of the comment
+    ///
+    /// # Returns
+    /// * Result containing the comment ID
+    ///
+    /// # API Endpoint
+    /// POST <https://www.googleapis.com/youtube/v3/commentThreads?part=snippet>
+    pub async fn post_comment(&self, video_id: &str, comment_text: &str) -> Result<String> {
+        info!(
+            "Posting comment to video {} with text length: {}",
+            video_id,
+            comment_text.len()
+        );
+
+        let comment_json = json!({
+            "snippet": {
+                "videoId": video_id,
+                "topLevelComment": {
+                    "snippet": {
+                        "textOriginal": comment_text
+                    }
+                }
+            }
+        });
+
+        let response = self
+            .client
+            .post("commentThreads?part=snippet")
+            .await?
+            .json(&comment_json)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "Failed to post comment with status {}: {}",
+                status,
+                text
+            ));
+        }
+
+        #[derive(Deserialize)]
+        struct CommentResponse {
+            id: String,
+        }
+
+        let comment_response: CommentResponse = response.json().await?;
+        let comment_id = comment_response.id;
+
+        info!("Successfully posted comment with ID: {}", comment_id);
+
+        Ok(comment_id)
+    }
+
+    /// Pin a comment (make it a featured comment) on a video.
+    ///
+    /// # Arguments
+    /// * `comment_id` - The ID of the comment thread to pin
+    ///
+    /// # Returns
+    /// * Result indicating success or failure
+    ///
+    /// # API Endpoint
+    /// PUT <https://www.googleapis.com/youtube/v3/commentThreads?part=snippet>
+    pub async fn pin_comment(&self, comment_id: &str) -> Result<()> {
+        info!("Pinning comment: {}", comment_id);
+
+        // First, fetch the current comment details
+        let endpoint = format!("commentThreads?part=snippet&id={}", comment_id);
+
+        let response = self.client.get(&endpoint).await?.send().await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "Failed to fetch comment details with status {}: {}",
+                status,
+                text
+            ));
+        }
+
+        #[derive(Deserialize)]
+        struct CommentThreadResponse {
+            items: Vec<serde_json::Value>,
+        }
+
+        let comment_response: CommentThreadResponse = response.json().await?;
+
+        if comment_response.items.is_empty() {
+            return Err(anyhow!("Comment {} not found", comment_id));
+        }
+
+        let mut comment_item = comment_response.items[0].clone();
+
+        // Update the snippet to set isRepliesDisabled to true (this marks it as featured/pinned)
+        if let Some(snippet) = comment_item
+            .get_mut("snippet")
+            .and_then(|s| s.as_object_mut())
+        {
+            snippet.insert("isRepliesDisabled".to_string(), json!(true));
+        }
+
+        // Remove unnecessary fields for update
+        if let Some(obj) = comment_item.as_object_mut() {
+            obj.remove("kind");
+            obj.remove("etag");
+        }
+
+        // Send PUT request to pin the comment
+        let response = self
+            .client
+            .put("commentThreads?part=snippet")
+            .await?
+            .json(&comment_item)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "Failed to pin comment with status {}: {}",
+                status,
+                text
+            ));
+        }
+
+        info!("Successfully pinned comment: {}", comment_id);
+        Ok(())
+    }
 }
 
 /// Upload videos using individual schema format (sequential).
