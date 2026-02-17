@@ -1055,6 +1055,186 @@ impl YouTubeClient {
         Ok(())
     }
 
+    pub async fn update_video_description(
+        &self,
+        video_id: &str,
+        additional_content: &str,
+    ) -> Result<()> {
+        info!("Appending content to description for video {}", video_id);
+
+        let endpoint = format!("videos?part=snippet&id={}", video_id);
+
+        let response = self.client.get(&endpoint).await?.send().await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "Failed to fetch video details with status {}: {}",
+                status,
+                text
+            ));
+        }
+
+        #[derive(Deserialize)]
+        struct VideoResponse {
+            items: Vec<serde_json::Value>,
+        }
+
+        let video_response: VideoResponse = response.json().await?;
+
+        if video_response.items.is_empty() {
+            return Err(anyhow!("Video {} not found", video_id));
+        }
+
+        let mut video_item = video_response.items[0].clone();
+
+        if let Some(snippet) = video_item
+            .get_mut("snippet")
+            .and_then(|s| s.as_object_mut())
+        {
+            if let Some(desc) = snippet.get_mut("description").and_then(|d| d.as_str()) {
+                let new_description = if desc.trim().is_empty() {
+                    additional_content.to_string()
+                } else {
+                    format!("{}\n\n{}", desc, additional_content)
+                };
+                snippet.insert("description".to_string(), json!(new_description));
+            } else {
+                snippet.insert("description".to_string(), json!(additional_content));
+            }
+        }
+
+        if let Some(obj) = video_item.as_object_mut() {
+            obj.remove("kind");
+            obj.remove("etag");
+        }
+
+        let response = self
+            .client
+            .put("videos?part=snippet")
+            .await?
+            .json(&video_item)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "Failed to update video with status {}: {}",
+                status,
+                text
+            ));
+        }
+
+        info!("Successfully updated video description: {}", video_id);
+        Ok(())
+    }
+
+    pub async fn update_video_tags(
+        &self,
+        video_id: &str,
+        additional_tags: &[String],
+    ) -> Result<()> {
+        info!(
+            "Adding {} tags to video {}",
+            additional_tags.len(),
+            video_id
+        );
+
+        let endpoint = format!("videos?part=snippet&id={}", video_id);
+
+        let response = self.client.get(&endpoint).await?.send().await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "Failed to fetch video details with status {}: {}",
+                status,
+                text
+            ));
+        }
+
+        #[derive(Deserialize)]
+        struct VideoResponse {
+            items: Vec<serde_json::Value>,
+        }
+
+        let video_response: VideoResponse = response.json().await?;
+
+        if video_response.items.is_empty() {
+            return Err(anyhow!("Video {} not found", video_id));
+        }
+
+        let mut video_item = video_response.items[0].clone();
+
+        if let Some(snippet) = video_item
+            .get_mut("snippet")
+            .and_then(|s| s.as_object_mut())
+        {
+            let existing_tags = snippet
+                .get("tags")
+                .and_then(|t| t.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_lowercase()))
+                        .collect::<std::collections::HashSet<_>>()
+                })
+                .unwrap_or_default();
+
+            let new_tags: Vec<String> = additional_tags
+                .iter()
+                .filter(|tag| !existing_tags.contains(&tag.to_lowercase()))
+                .map(|tag| tag.to_string())
+                .collect();
+
+            if !new_tags.is_empty() {
+                let mut all_tags: Vec<String> = snippet
+                    .get("tags")
+                    .and_then(|t| t.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                all_tags.extend(new_tags);
+                snippet.insert("tags".to_string(), json!(all_tags));
+            } else {
+                info!("No new tags to add (all tags already exist)");
+            }
+        }
+
+        if let Some(obj) = video_item.as_object_mut() {
+            obj.remove("kind");
+            obj.remove("etag");
+        }
+
+        let response = self
+            .client
+            .put("videos?part=snippet")
+            .await?
+            .json(&video_item)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "Failed to update video with status {}: {}",
+                status,
+                text
+            ));
+        }
+
+        info!("Successfully updated video tags: {}", video_id);
+        Ok(())
+    }
+
     /// List all available captions/subtitles for a specific video.
     ///
     /// This method retrieves all caption tracks available for a given video,

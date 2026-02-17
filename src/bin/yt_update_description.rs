@@ -1,0 +1,70 @@
+use anyhow::Result;
+use clap::Parser;
+use rust_yt_uploader::YouTubeClient;
+use std::fs;
+use std::path::Path;
+
+/// YouTube video description updater CLI
+#[derive(Parser)]
+#[command(name = "yt-update-description")]
+#[command(about = "Append content to video descriptions from a text file")]
+#[command(long_about = r#"
+Append content to YouTube video descriptions from a text file.
+
+This tool reads content from a .txt file and appends it to the description
+of specified YouTube videos. The existing description and new content are
+separated by a blank line (two newlines).
+
+Usage examples:
+  yt-update-description <video_id> <content_file.txt>
+  yt-update-description abc123 my_content.txt
+"#)]
+struct Cli {
+    /// YouTube video ID to update
+    video_id: String,
+
+    /// Path to text file containing content to append
+    content_file: String,
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let cli = Cli::parse();
+
+    let content_path = Path::new(&cli.content_file);
+    if !content_path.exists() {
+        anyhow::bail!("Content file not found: {}", cli.content_file);
+    }
+
+    let additional_content = fs::read_to_string(&cli.content_file)?;
+
+    let additional_content: String = additional_content
+        .lines()
+        .filter(|line| !line.contains("-- end of file --"))
+        .filter(|line| !line.trim().is_empty())
+        .collect::<Vec<&str>>()
+        .join("\n");
+
+    let additional_content = additional_content.trim();
+
+    if additional_content.is_empty() {
+        anyhow::bail!("Content file is empty: {}", cli.content_file);
+    }
+
+    println!("Reading content from: {}", cli.content_file);
+    println!("Updating video: {}", cli.video_id);
+    println!();
+
+    let client = YouTubeClient::new().await?;
+
+    client
+        .update_video_description(&cli.video_id, additional_content)
+        .await?;
+
+    println!(
+        "✓ Successfully updated description for video {}",
+        cli.video_id
+    );
+
+    Ok(())
+}
