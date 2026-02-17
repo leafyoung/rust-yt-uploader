@@ -69,6 +69,20 @@ async fn main() -> Result<()> {
 
     let client = YouTubeClient::new().await?;
 
+    // Check if comment already exists on the video
+    println!("Checking for duplicate comment on video...");
+    let already_exists = client.comment_exists(&cli.video_id, comment_text).await?;
+
+    if already_exists {
+        println!();
+        println!("⚠ WARNING: A comment with identical text already exists on this video!");
+        println!("Skipping post to prevent duplicate comment.");
+        return Ok(());
+    }
+
+    println!("No duplicate found. Proceeding with post...");
+    println!();
+
     let comment_id = client.post_comment(&cli.video_id, comment_text).await?;
 
     println!("✓ Successfully posted comment to video {}", cli.video_id);

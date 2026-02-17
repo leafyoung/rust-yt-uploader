@@ -1640,6 +1640,74 @@ impl YouTubeClient {
         info!("Successfully pinned comment: {}", comment_id);
         Ok(())
     }
+
+    /// Check if a comment with the same text already exists on a video.
+    ///
+    /// # Arguments
+    /// * `video_id` - The YouTube video ID
+    /// * `comment_text` - The text to search for
+    ///
+    /// # Returns
+    /// * Result containing true if a matching comment exists, false otherwise
+    pub async fn comment_exists(&self, video_id: &str, comment_text: &str) -> Result<bool> {
+        info!("Checking if comment already exists on video {}", video_id);
+
+        let endpoint = format!(
+            "commentThreads?part=snippet&videoId={}&textFormat=plainText",
+            video_id
+        );
+
+        let response = self.client.get(&endpoint).await?.send().await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "Failed to fetch comments with status {}: {}",
+                status,
+                text
+            ));
+        }
+
+        #[derive(Deserialize)]
+        struct CommentsResponse {
+            items: Vec<CommentItem>,
+        }
+
+        #[derive(Deserialize)]
+        struct CommentItem {
+            snippet: CommentSnippet,
+        }
+
+        #[derive(Deserialize)]
+        struct CommentSnippet {
+            #[serde(rename = "topLevelComment")]
+            top_level_comment: TopLevelComment,
+        }
+
+        #[derive(Deserialize)]
+        struct TopLevelComment {
+            snippet: TextSnippet,
+        }
+
+        #[derive(Deserialize)]
+        struct TextSnippet {
+            #[serde(rename = "textOriginal")]
+            text_original: String,
+        }
+
+        let comments_response: CommentsResponse = response.json().await?;
+
+        // Check if any comment matches the text we're trying to post
+        for item in comments_response.items {
+            if item.snippet.top_level_comment.snippet.text_original.trim() == comment_text.trim() {
+                info!("Found matching comment on video {}", video_id);
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
 }
 
 /// Upload videos using individual schema format (sequential).
