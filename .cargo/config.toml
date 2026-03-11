@@ -1,0 +1,33 @@
+# Build optimisation for rust-yt-uploader
+# Strategy: mold linker + sccache-friendly settings + parallel codegen
+
+[build]
+jobs = 32
+
+# mold is the fastest linker on Linux (10-40x faster than ld, 2-5x faster than lld).
+# clang is used as the cc driver so it picks up -fuse-ld=mold.
+[target.x86_64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
+[profile.release]
+# 64 codegen units → maximum parallel rustc threads per crate
+codegen-units = 64
+
+# opt-level 1: 30-40% faster compilation than level 3, negligible runtime cost
+# for a network-I/O-bound uploader.
+opt-level = 1
+
+# No LTO → avoids the expensive whole-program analysis pass
+lto = false
+
+# strip = false → faster linking (no post-link strip step)
+strip = false
+
+# incremental = false: sccache cannot cache incremental artifacts (they embed
+# session-local paths). Disabling lets sccache cache every crate, making the
+# next clean build hit the cache for all deps.
+incremental = false
+
+[profile.dev]
+opt-level = 0

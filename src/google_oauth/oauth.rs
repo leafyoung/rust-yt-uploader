@@ -4,7 +4,7 @@ use super::credentials::Credentials;
 
 use anyhow::{Result, anyhow};
 use base64::Engine;
-use rand::Rng;
+use rand::RngExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

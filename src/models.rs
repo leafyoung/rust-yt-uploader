@@ -4,7 +4,7 @@
 //! supporting both individual and batch YAML configuration formats.
 
 use anyhow::{Result, anyhow};
-use rand::Rng;
+use rand::RngExt;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
