@@ -4,6 +4,19 @@ use rust_yt_uploader::YouTubeClient;
 use std::fs;
 use std::path::Path;
 
+/// Initialize tracing/logging
+fn init_logging() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
+        )
+        .with_target(false)
+        .with_thread_ids(false)
+        .with_file(true)
+        .with_line_number(true)
+        .init();
+}
+
 /// YouTube video comment poster CLI
 #[derive(Parser)]
 #[command(name = "yt-add-pin-comment")]
@@ -18,6 +31,7 @@ Usage examples:
   yt-add-pin-comment <video_id> <comment_file.txt>
   yt-add-pin-comment abc123 my_comment.txt
   yt-add-pin-comment abc123 my_comment.txt --pin
+  yt-add-pin-comment abc123 my_comment.txt --pin --skip-if-pinned
 "#)]
 struct Cli {
     /// YouTube video ID to post comment to
@@ -29,10 +43,20 @@ struct Cli {
     /// Pin (feature) the comment after posting
     #[arg(long)]
     pin: bool,
+
+    /// Skip posting if the video already has at least one pinned comment
+    #[arg(long)]
+    skip_if_pinned: bool,
+
+    /// Force posting even if a pinned comment is detected (or detection fails)
+    #[arg(long)]
+    force: bool,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    init_logging();
+
     let cli = Cli::parse();
 
     let comment_path = Path::new(&cli.comment_file);
@@ -68,6 +92,37 @@ async fn main() -> Result<()> {
     println!();
 
     let client = YouTubeClient::new().await?;
+
+    // Bail out early if the video already has a pinned comment and the flag is set
+    if cli.skip_if_pinned {
+        println!("Checking for existing pinned comment on video...");
+        match client.has_pinned_comment(&cli.video_id).await {
+            Ok(true) => {
+                println!();
+                println!("⚠ Pinned comment already exists on video {}.", cli.video_id);
+                if cli.force {
+                    println!("Proceeding because --force was specified.");
+                } else {
+                    println!("Skipping post because --skip-if-pinned was specified.");
+                    return Ok(());
+                }
+            }
+            Ok(false) => {
+                println!("No pinned comment found. Proceeding...");
+            }
+            Err(e) => {
+                // Detection failed
+                println!("⚠ Warning: Could not reliably detect pinned comment: {}", e);
+                if cli.force {
+                    println!("Proceeding because --force was specified.");
+                } else {
+                    println!("Skipping post to be safe. Use --force to override.");
+                    return Ok(());
+                }
+            }
+        }
+        println!();
+    }
 
     // Check if comment already exists on the video
     println!("Checking for duplicate comment on video...");

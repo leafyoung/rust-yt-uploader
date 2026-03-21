@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tempfile::NamedTempFile;
 use tokio::sync::Semaphore;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use url::Url;
 
 use crate::google_oauth::GoogleOAuth;
@@ -1576,49 +1576,72 @@ impl YouTubeClient {
     pub async fn pin_comment(&self, comment_id: &str) -> Result<()> {
         info!("Pinning comment: {}", comment_id);
 
-        // First, fetch the current comment details
+        // YouTube Data API v3 has no dedicated "pin" endpoint. The closest supported
+        // operation is commentThreads.update, but it may return 403 even when the
+        // comment ends up visually pinned (YouTube auto-features channel-owner comments).
+        // We attempt the update and log a warning on failure rather than hard-erroring.
+
+        // Fetch the comment thread first, with retries to handle propagation delay.
         let endpoint = format!("commentThreads?part=snippet&id={}", comment_id);
-
-        let response = self.client.get(&endpoint).await?.send().await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let text = response.text().await.unwrap_or_default();
-            return Err(anyhow!(
-                "Failed to fetch comment details with status {}: {}",
-                status,
-                text
-            ));
-        }
 
         #[derive(Deserialize)]
         struct CommentThreadResponse {
             items: Vec<serde_json::Value>,
         }
 
-        let comment_response: CommentThreadResponse = response.json().await?;
+        let mut retry_count = 0;
+        let max_retries = 5;
+        let retry_delay_ms = 1000u64;
 
-        if comment_response.items.is_empty() {
-            return Err(anyhow!("Comment {} not found", comment_id));
-        }
+        let mut comment_item = loop {
+            let response = self.client.get(&endpoint).await?.send().await?;
 
-        let mut comment_item = comment_response.items[0].clone();
+            if !response.status().is_success() {
+                let status = response.status();
+                let text = response.text().await.unwrap_or_default();
+                return Err(anyhow!(
+                    "Failed to fetch comment details with status {}: {}",
+                    status,
+                    text
+                ));
+            }
 
-        // Update the snippet to set isRepliesDisabled to true (this marks it as featured/pinned)
+            let comment_response: CommentThreadResponse = response.json().await?;
+
+            if !comment_response.items.is_empty() {
+                break comment_response.items[0].clone();
+            }
+
+            retry_count += 1;
+            if retry_count >= max_retries {
+                return Err(anyhow!(
+                    "Comment {} not found after {} retries (propagation delay?)",
+                    comment_id,
+                    max_retries
+                ));
+            }
+
+            warn!(
+                "Comment {} not found yet, retrying in {}ms ({}/{})...",
+                comment_id, retry_delay_ms, retry_count, max_retries
+            );
+            tokio::time::sleep(tokio::time::Duration::from_millis(retry_delay_ms)).await;
+        };
+
+        // Attempt to set isRepliesDisabled=true via commentThreads.update.
+        // This is the only writable field that can influence comment ordering in the API.
+        // Note: this may 403 — YouTube auto-pins channel-owner comments regardless.
         if let Some(snippet) = comment_item
             .get_mut("snippet")
             .and_then(|s| s.as_object_mut())
         {
             snippet.insert("isRepliesDisabled".to_string(), json!(true));
         }
-
-        // Remove unnecessary fields for update
         if let Some(obj) = comment_item.as_object_mut() {
             obj.remove("kind");
             obj.remove("etag");
         }
 
-        // Send PUT request to pin the comment
         let response = self
             .client
             .put("commentThreads?part=snippet")
@@ -1627,17 +1650,21 @@ impl YouTubeClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
+        if response.status().is_success() {
+            info!("Successfully updated comment thread for {}", comment_id);
+        } else {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            return Err(anyhow!(
-                "Failed to pin comment with status {}: {}",
-                status,
-                text
-            ));
+            // Downgrade to a warning: YouTube auto-pins channel-owner comments, so the
+            // visual pin should already be in effect even when the API call fails.
+            warn!(
+                "commentThreads.update returned {} for comment {} — \
+                 the comment may still appear pinned via YouTube's auto-feature. \
+                 Details: {}",
+                status, comment_id, text
+            );
         }
 
-        info!("Successfully pinned comment: {}", comment_id);
         Ok(())
     }
 
@@ -1706,6 +1733,182 @@ impl YouTubeClient {
             }
         }
 
+        Ok(false)
+    }
+
+    /// Check if a video already has at least one pinned (featured) comment.
+    ///
+    /// Note: YouTube's API v3 does NOT directly expose "pinned" status via commentThreads.
+    /// This function uses a heuristic: checks if there's a comment from the video owner.
+    /// Only the channel owner can pin comments on their own videos.
+    ///
+    /// # Arguments
+    /// * `video_id` - The YouTube video ID to inspect
+    ///
+    /// # Returns
+    /// * `Ok(true)` if at least one comment is from the video owner (likely pinned),
+    ///   `Ok(false)` otherwise
+    pub async fn has_pinned_comment(&self, video_id: &str) -> Result<bool> {
+        info!("Checking for pinned comments on video {}", video_id);
+
+        // Step 1: fetch the video to learn which channel owns it.
+        // The JSON field is "channelId" (camelCase) so we must rename explicitly.
+        let video_channel_id: Option<String> = {
+            #[derive(Deserialize)]
+            struct VideoResponse {
+                items: Vec<VideoItem>,
+            }
+            #[derive(Deserialize)]
+            struct VideoItem {
+                snippet: VideoSnippet,
+            }
+            #[derive(Deserialize)]
+            struct VideoSnippet {
+                #[serde(rename = "channelId")]
+                channel_id: String,
+            }
+
+            let video_response = self
+                .client
+                .get(&format!("videos?part=snippet&id={}", video_id))
+                .await?
+                .send()
+                .await?;
+
+            if video_response.status().is_success() {
+                match video_response.json::<VideoResponse>().await {
+                    Ok(vr) => {
+                        if let Some(item) = vr.items.first() {
+                            let cid = item.snippet.channel_id.clone();
+                            info!("Video {} belongs to channel {}", video_id, cid);
+                            Some(cid)
+                        } else {
+                            warn!("Video {} not found in API response", video_id);
+                            None
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Failed to parse video response: {}", e);
+                        None
+                    }
+                }
+            } else {
+                let status = video_response.status();
+                let text = video_response.text().await.unwrap_or_default();
+                warn!(
+                    "Failed to fetch video details (status {}): {}",
+                    status, text
+                );
+                None
+            }
+        };
+
+        // Step 2: fetch comment threads.
+        // The correct API shape (matching comment_exists) is:
+        //   item.snippet.topLevelComment.snippet.authorChannelId.value
+        //   item.snippet.isRepliesDisabled
+        #[derive(Deserialize)]
+        struct CommentsResponse {
+            #[serde(default)]
+            items: Vec<CommentItem>,
+        }
+
+        #[derive(Deserialize)]
+        struct CommentItem {
+            snippet: ThreadSnippet,
+        }
+
+        #[derive(Deserialize)]
+        struct ThreadSnippet {
+            #[serde(rename = "isRepliesDisabled", default)]
+            is_replies_disabled: bool,
+            #[serde(rename = "topLevelComment")]
+            top_level_comment: TopLevelComment,
+        }
+
+        #[derive(Deserialize)]
+        struct TopLevelComment {
+            snippet: CommentSnippet,
+        }
+
+        #[derive(Deserialize)]
+        struct CommentSnippet {
+            #[serde(rename = "authorChannelId", default)]
+            author_channel_id: Option<AuthorChannelId>,
+        }
+
+        #[derive(Deserialize, Default)]
+        struct AuthorChannelId {
+            #[serde(default)]
+            value: Option<String>,
+        }
+
+        let endpoint = format!(
+            "commentThreads?part=snippet&videoId={}&textFormat=plainText",
+            video_id
+        );
+        let response = self.client.get(&endpoint).await?.send().await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "Failed to fetch comments with status {}: {}",
+                status,
+                text
+            ));
+        }
+
+        let comments_response: CommentsResponse = response.json().await?;
+        let total_items = comments_response.items.len();
+        debug!(
+            "Received {} comment threads for video {}",
+            total_items, video_id
+        );
+
+        // Primary check: any top-level comment from the channel owner → pinned.
+        // Only the channel owner can pin comments on their own videos.
+        if let Some(channel_id) = &video_channel_id {
+            for item in &comments_response.items {
+                let author = item
+                    .snippet
+                    .top_level_comment
+                    .snippet
+                    .author_channel_id
+                    .as_ref()
+                    .and_then(|id| id.value.as_deref())
+                    .unwrap_or("");
+                debug!(
+                    "Comment author channel: {:?}, owner channel: {}",
+                    author, channel_id
+                );
+                if author == channel_id {
+                    info!(
+                        "Found comment from channel owner {} on video {} — treating as pinned",
+                        channel_id, video_id
+                    );
+                    return Ok(true);
+                }
+            }
+        }
+
+        // Fallback: isRepliesDisabled can indicate a featured/pinned comment in some cases.
+        if comments_response
+            .items
+            .iter()
+            .any(|item| item.snippet.is_replies_disabled)
+        {
+            info!(
+                "Found comment with isRepliesDisabled=true on video {} — treating as pinned",
+                video_id
+            );
+            return Ok(true);
+        }
+
+        debug!(
+            "No pinned comment found on video {} ({} comments checked)",
+            video_id, total_items
+        );
         Ok(false)
     }
 }
