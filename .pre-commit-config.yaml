@@ -37,7 +37,7 @@ repos:
     hooks:
       # Check for large files
       - id: check-added-large-files
-        args: ['--maxkb=10000']
+        args: ["--maxkb=10000"]
 
       # Check YAML files syntax
       - id: check-yaml
@@ -51,9 +51,6 @@ repos:
       # Fix trailing whitespace
       - id: trailing-whitespace
         exclude: ^(tests/|fixtures/)
-
-      # Fix end of files
-      - id: end-of-file-fixer
 
       # Detect merge conflict markers
       - id: check-merge-conflict
