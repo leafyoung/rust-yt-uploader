@@ -8,7 +8,7 @@
 
 use anyhow::Result;
 use clap::Parser;
-use rust_yt_uploader::YouTubeClient;
+use rust_yt_uploader::{YouTubeClient, init_logging};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tracing::info;
@@ -46,23 +46,9 @@ struct Cli {
     only_empty: bool,
 }
 
-/// Initialize tracing/logging
-fn init_logging() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .with_target(false)
-        .with_thread_ids(false)
-        .with_file(true)
-        .with_line_number(true)
-        .init();
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     init_logging();
-
     let cli = Cli::parse();
 
     info!("Starting YouTube video language updater");

@@ -471,11 +471,7 @@ impl OAuthFlow {
 
         let token_response: serde_json::Value = response.json().await?;
 
-        let access_token = token_response
-            .get("access_token")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-            .ok_or_else(|| anyhow!("Missing access_token in response"))?;
+        let (access_token, expires_at) = Self::parse_token_response(&token_response)?;
 
         let refresh_token = token_response
             .get("refresh_token")
@@ -484,17 +480,6 @@ impl OAuthFlow {
             .ok_or_else(|| {
                 anyhow!("Missing refresh_token in response - ensure offline access is requested")
             })?;
-
-        let expires_in = token_response
-            .get("expires_in")
-            .and_then(|v| v.as_i64())
-            .unwrap();
-
-        let current_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
-        let expires_at = current_time + expires_in;
 
         info!("Successfully obtained OAuth tokens with PKCE protection");
 
@@ -505,6 +490,34 @@ impl OAuthFlow {
             scopes: scopes.iter().map(|s| s.to_string()).collect(),
             expires_at,
         })
+    }
+
+    /// Parse access token and expiration time from OAuth token response.
+    ///
+    /// # Arguments
+    /// * `token_response` - The JSON response from the OAuth token endpoint
+    ///
+    /// # Returns
+    /// * A tuple of (access_token, expires_at)
+    fn parse_token_response(token_response: &serde_json::Value) -> Result<(String, i64)> {
+        let access_token = token_response
+            .get("access_token")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| anyhow!("Missing access_token in response"))?;
+
+        let expires_in = token_response
+            .get("expires_in")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| anyhow!("Missing expires_in in response"))?;
+
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let expires_at = current_time + expires_in;
+
+        Ok((access_token, expires_at))
     }
 
     /// Refresh access token using refresh token
@@ -545,27 +558,12 @@ impl OAuthFlow {
 
         let token_response: serde_json::Value = response.json().await?;
 
-        let access_token = token_response
-            .get("access_token")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-            .ok_or_else(|| anyhow!("Missing access_token in response"))?;
+        let (access_token, expires_at) = Self::parse_token_response(&token_response)?;
 
         let new_refresh_token = token_response
             .get("refresh_token")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
-
-        let expires_in = token_response
-            .get("expires_in")
-            .and_then(|v| v.as_i64())
-            .unwrap();
-
-        let current_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
-        let expires_at = current_time + expires_in;
 
         info!("Successfully refreshed OAuth token");
 

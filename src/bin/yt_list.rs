@@ -9,7 +9,7 @@
 
 use anyhow::Result;
 use clap::Parser;
-use rust_yt_uploader::YouTubeClient;
+use rust_yt_uploader::{YouTubeClient, init_logging};
 use std::path::PathBuf;
 use tracing::info;
 
@@ -89,19 +89,6 @@ struct Cli {
     /// Filter subtitles by language code (e.g., 'en', 'zh', 'fr')
     #[arg(long)]
     language: Option<String>,
-}
-
-/// Initialize tracing/logging
-fn init_logging() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .with_target(false)
-        .with_thread_ids(false)
-        .with_file(true)
-        .with_line_number(true)
-        .init();
 }
 
 /// Format videos as JSON

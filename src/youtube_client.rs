@@ -9,18 +9,22 @@ use futures::future::try_join_all;
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use tempfile::NamedTempFile;
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
-use url::Url;
 
 use crate::google_oauth::GoogleOAuth;
 use crate::models::{BatchConfigRoot, IndividualConfigRoot, RetryConfig, VideoUploadOptions};
 use crate::progress_stream::ProgressStream;
 use crate::retry::retry_with_backoff;
 use crate::video_process::merge_videos_with_ffmpeg;
+use crate::youtube::{
+    build_youtube_base_url, build_youtube_direct_upload_url, default_credentials_path,
+    default_token_path, default_youtube_scopes, types,
+};
+use reqwest::RequestBuilder;
 use validator::Validate;
 
 /// Progress reporter trait for upload progress tracking
@@ -66,76 +70,6 @@ impl ProgressReporter for ProgressBarReporter {
     fn finish(&self) {
         self.bar.finish_with_message("Upload complete");
     }
-}
-
-/// YouTube API response for video upload
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-struct VideoUploadResponse {
-    id: String,
-    snippet: VideoSnippet,
-}
-
-/// Video snippet information from YouTube API
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-struct VideoSnippet {
-    title: String,
-    description: String,
-    #[serde(rename = "categoryId")]
-    category_id: String,
-}
-
-/// Playlist info response from YouTube API
-#[derive(Debug, Deserialize)]
-struct PlaylistInfoResponse {
-    #[serde(rename = "pageInfo")]
-    page_info: PageInfo,
-}
-
-/// Page info for pagination
-#[derive(Debug, Deserialize)]
-struct PageInfo {
-    #[serde(rename = "totalResults")]
-    total_results: u32,
-}
-
-/// OAuth 2.0 scopes required for YouTube operations
-pub const YOUTUBE_UPLOAD_SCOPE: &str = "https://www.googleapis.com/auth/youtube.upload";
-pub const YOUTUBE_SCOPE: &str = "https://www.googleapis.com/auth/youtube";
-pub const YOUTUBE_READONLY_SCOPE: &str = "https://www.googleapis.com/auth/youtube.readonly";
-pub const YOUTUBE_PLAYLIST_SCOPE: &str = "https://www.googleapis.com/auth/youtube.force-ssl";
-
-/// YouTube API service configuration
-pub const YOUTUBE_API_SERVICE_NAME: &str = "youtube";
-pub const YOUTUBE_API_VERSION: &str = "v3";
-pub const YOUTUBE_API_BASE_URL: &str = "https://www.googleapis.com";
-
-/// Build the YouTube API base URL using URL builder
-pub fn build_youtube_base_url() -> String {
-    let mut url = Url::parse(YOUTUBE_API_BASE_URL).expect("Invalid base URL");
-    url.path_segments_mut()
-        .expect("URL cannot be base")
-        .push(YOUTUBE_API_SERVICE_NAME)
-        .push(YOUTUBE_API_VERSION);
-    url.to_string()
-}
-
-pub fn build_youtube_direct_upload_url() -> String {
-    let mut url = Url::parse(YOUTUBE_API_BASE_URL).expect("Invalid base URL");
-    url.path_segments_mut()
-        .expect("URL cannot be base")
-        .push("upload")
-        .push(YOUTUBE_API_SERVICE_NAME)
-        .push(YOUTUBE_API_VERSION)
-        .push("videos");
-
-    // Add query parameters for direct media upload
-    url.query_pairs_mut()
-        .append_pair("uploadType", "multipart")
-        .append_pair("part", "snippet,status,recordingDetails");
-
-    url.to_string()
 }
 
 /// Video details for listing
@@ -186,23 +120,6 @@ pub struct YouTubeClient {
     client: GoogleOAuth,
     retry_config: RetryConfig,
     progress_reporter: Arc<dyn ProgressReporter>,
-}
-
-pub fn default_credentials_path() -> PathBuf {
-    PathBuf::from("client_secret.json")
-}
-
-pub fn default_token_path() -> PathBuf {
-    PathBuf::from("youtube-oauth2.json")
-}
-
-pub fn default_youtube_scopes() -> Vec<&'static str> {
-    vec![
-        YOUTUBE_UPLOAD_SCOPE,
-        YOUTUBE_PLAYLIST_SCOPE,
-        YOUTUBE_SCOPE,
-        YOUTUBE_READONLY_SCOPE,
-    ]
 }
 
 impl YouTubeClient {
@@ -260,6 +177,34 @@ impl YouTubeClient {
         })
     }
 
+    /// Execute an HTTP request and parse the JSON response, with standardized error handling.
+    ///
+    /// This helper eliminates duplicate error handling code across API methods.
+    ///
+    /// # Arguments
+    /// * `request` - The request builder to execute
+    /// * `operation` - Description of the operation for error messages
+    ///
+    /// # Returns
+    /// * The deserialized response type T
+    async fn execute_and_parse<T>(&self, request: RequestBuilder, operation: &str) -> Result<T>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        let response = request.send().await?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "YouTube API {} failed with status {}: {}",
+                operation,
+                status,
+                text
+            ));
+        }
+        Ok(response.json().await?)
+    }
+
     /// Upload a single video to YouTube
     ///
     /// # Arguments
@@ -279,7 +224,6 @@ impl YouTubeClient {
 
         info!("Starting upload for: {}", options.title);
 
-        // Initialize upload
         let video_id = retry_with_backoff(
             || self.initialize_upload(options),
             &self.retry_config,
@@ -289,7 +233,6 @@ impl YouTubeClient {
 
         info!("Video uploaded successfully with ID: {}", video_id);
 
-        // Add to playlist
         let playlist_success = retry_with_backoff(
             || self.add_to_playlist(&video_id, &options.playlist_id),
             &self.retry_config,
@@ -306,17 +249,12 @@ impl YouTubeClient {
                     "Video added to playlist successfully {}",
                     options.playlist_id
                 );
-                // Test mode: delete video and remove from playlist after upload
                 if test_mode {
                     info!("Test mode enabled - deleting video after upload, wait for 5 seconds");
 
-                    // sleep for a short duration to ensure YouTube has processed the upload
                     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
-                    // Remove from playlist BEFORE deleting video (while video_id still exists)
                     if let Err(e) = self
-                        // .remove_from_playlist_by_video_id(&options.playlist_id, &video_id)
-                        // Or,
                         .remove_from_playlist_by_item_id(&playlist_item_id)
                         .await
                     {
@@ -335,20 +273,16 @@ impl YouTubeClient {
         Ok(video_id)
     }
 
-    /// Initialize direct video upload with YouTube API using multipart upload
     async fn initialize_upload(&self, options: &VideoUploadOptions) -> Result<String> {
         let file_path = shellexpand::tilde(&options.file);
         let file_path = Path::new(file_path.as_ref());
 
-        // Get file metadata for progress
         let metadata = tokio::fs::metadata(&file_path).await?;
         let file_size = metadata.len();
 
-        // Report progress start
         self.progress_reporter
             .report_progress(0, file_size, file_path.to_string_lossy().as_ref());
 
-        // Prepare metadata JSON for multipart upload
         let tags: Vec<&str> = if options.keywords.is_empty() {
             Vec::new()
         } else {
@@ -372,14 +306,12 @@ impl YouTubeClient {
             }
         });
 
-        // Open file and create streaming upload with progress tracking and bandwidth throttling
         use tokio::fs::File;
         use tokio_util::io::ReaderStream;
 
         let file = File::open(&file_path).await?;
         let stream = ReaderStream::new(file);
 
-        // Bandwidth limit: 80 MB/s = 80 * 1024 * 1024 bytes/s
         const BANDWIDTH_LIMIT: u64 = 100 * 1024 * 1024;
 
         let progress_stream = ProgressStream::new(
@@ -390,7 +322,6 @@ impl YouTubeClient {
             Some(BANDWIDTH_LIMIT),
         );
 
-        // Create multipart form data with streaming file upload
         let form = reqwest::multipart::Form::new()
             .part(
                 "snippet",
@@ -432,10 +363,9 @@ impl YouTubeClient {
             ));
         }
 
-        let upload_response: VideoUploadResponse = response.json().await?;
+        let upload_response: types::VideoUploadResponse = response.json().await?;
         let video_id = upload_response.id;
 
-        // Report progress complete
         self.progress_reporter.report_progress(
             file_size,
             file_size,
@@ -447,7 +377,6 @@ impl YouTubeClient {
         Ok(video_id)
     }
     async fn add_to_playlist(&self, video_id: &str, playlist_id: &str) -> Result<String> {
-        // Get current playlist item count
         let playlist_info = self
             .client
             .get(&format!(
@@ -484,12 +413,11 @@ impl YouTubeClient {
         // }
 
         let info: serde_json::Value = playlist_info.json().await?;
-        let info_response: PlaylistInfoResponse = serde_json::from_value(info)?;
+        let info_response: types::PlaylistInfoResponse = serde_json::from_value(info)?;
         let position = info_response.page_info.total_results;
 
         info!("Adding video to playlist at position {}", position);
 
-        // Add video to playlist
         let playlist_item = json!({
             "snippet": {
                 "playlistId": playlist_id,
@@ -519,29 +447,7 @@ impl YouTubeClient {
             ));
         }
 
-        /// Playlist item response from YouTube API
-        #[derive(Debug, Deserialize)]
-        struct PlaylistItemResponse {
-            snippet: PlaylistItemSnippet,
-            id: String,
-        }
-
-        /// Playlist item snippet information
-        #[allow(dead_code)]
-        #[derive(Debug, Deserialize)]
-        struct PlaylistItemSnippet {
-            position: u32,
-            #[serde(rename = "playlistId")]
-            playlist_id: String,
-        }
-        // {
-        //     "etag": String,
-        //     "id": String,
-        //     "kind": "youtube#playlistItem",
-        //     "snippet": { "channelId": String, "channelTitle": String, "description": String, "playlistId": String, "position": 7, "publishedAt": "2026-01-21T02:37:07Z", "resourceId": { "kind": "youtube#video", "videoId": "FWgSRwlTYnI" }, "thumbnails": { "default": { "height": 90, "url": String, "width": 120 }, "high": { "height": 360, "url": String, "width": 480 }, "medium": { "height": 180, "url": String, "width": 320 } }, "title": String, "videoOwnerChannelId": "UCHrFC6fXivSeHGlRGosbNbw", "videoOwnerChannelTitle": String }
-        // }
-
-        let playlist_response: PlaylistItemResponse = response.json().await?;
+        let playlist_response: types::PlaylistItemResponse = response.json().await?;
         info!(
             "Added video to playlist at position {:?}",
             playlist_response.snippet.position
@@ -640,38 +546,17 @@ impl YouTubeClient {
     ) -> Result<()> {
         info!("Removing video {} from playlist {}", video_id, playlist_id);
 
-        // Query playlist items to find the one matching the video ID
-        let response = self
-            .client
-            .get(&format!(
-                "playlistItems?part=id&playlistId={}&videoId={}",
-                playlist_id, video_id
-            ))
-            .await?
-            .send()
+        let playlist_items: types::PlaylistItemsResponse = self
+            .execute_and_parse(
+                self.client
+                    .get(&format!(
+                        "playlistItems?part=id&playlistId={}&videoId={}",
+                        playlist_id, video_id
+                    ))
+                    .await?,
+                "query playlist items",
+            )
             .await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let text = response.text().await.unwrap_or_default();
-            return Err(anyhow!(
-                "Failed to query playlist items with status {}: {}",
-                status,
-                text
-            ));
-        }
-
-        #[derive(Deserialize)]
-        struct PlaylistItemsResponse {
-            items: Vec<PlaylistItem>,
-        }
-
-        #[derive(Deserialize)]
-        struct PlaylistItem {
-            id: String,
-        }
-
-        let playlist_items: PlaylistItemsResponse = response.json().await?;
 
         if playlist_items.items.is_empty() {
             return Err(anyhow!(
@@ -681,7 +566,6 @@ impl YouTubeClient {
             ));
         }
 
-        // Remove the first matching playlist item
         let playlist_item_id = &playlist_items.items[0].id;
         self.remove_from_playlist_by_item_id(playlist_item_id)
             .await?;
@@ -730,42 +614,21 @@ impl YouTubeClient {
                 ));
             }
 
-            #[derive(Deserialize)]
-            struct SearchResponse {
-                items: Vec<SearchItem>,
-                #[serde(rename = "nextPageToken")]
-                next_page_token: Option<String>,
-            }
-
-            #[derive(Deserialize)]
-            struct SearchItem {
-                id: VideoId,
-            }
-
-            #[derive(Deserialize)]
-            struct VideoId {
-                #[serde(rename = "videoId")]
-                video_id: String,
-            }
-
-            let search_response: SearchResponse = response.json().await?;
+            let search_response: types::SearchResponse = response.json().await?;
 
             if search_response.items.is_empty() {
                 break;
             }
 
-            // Extract video IDs from search results
             let video_ids: Vec<String> = search_response
                 .items
                 .iter()
                 .map(|item| item.id.video_id.clone())
                 .collect();
 
-            // Fetch detailed information for these videos
             let video_details = self.fetch_video_details(&video_ids).await?;
             all_videos.extend(video_details);
 
-            // Check if there are more pages
             page_token = search_response.next_page_token;
             if page_token.is_none() {
                 break;
@@ -794,68 +657,9 @@ impl YouTubeClient {
             ids_string
         );
 
-        let response = self.client.get(&endpoint).await?.send().await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let text = response.text().await.unwrap_or_default();
-            return Err(anyhow!(
-                "Failed to fetch video details with status {}: {}",
-                status,
-                text
-            ));
-        }
-
-        #[derive(Deserialize)]
-        struct VideoResponse {
-            items: Vec<VideoItem>,
-        }
-
-        #[derive(Deserialize)]
-        struct VideoItem {
-            id: String,
-            snippet: VideoSnippetFull,
-            status: VideoStatus,
-            #[serde(rename = "recordingDetails")]
-            recording_details: Option<RecordingDetails>,
-            #[serde(rename = "contentDetails")]
-            content_details: Option<ContentDetails>,
-        }
-
-        #[derive(Deserialize)]
-        struct VideoSnippetFull {
-            title: String,
-            description: String,
-            #[serde(rename = "categoryId")]
-            category_id: String,
-            #[serde(rename = "publishedAt")]
-            published_at: String,
-            tags: Option<Vec<String>>,
-            #[serde(rename = "defaultLanguage")]
-            default_language: Option<String>,
-            #[serde(rename = "defaultAudioLanguage")]
-            default_audio_language: Option<String>,
-        }
-
-        #[derive(Deserialize)]
-        struct VideoStatus {
-            #[serde(rename = "privacyStatus")]
-            privacy_status: String,
-        }
-
-        #[derive(Deserialize)]
-        struct RecordingDetails {
-            #[serde(rename = "recordingDate")]
-            recording_date: Option<String>,
-        }
-
-        #[derive(Deserialize)]
-        struct ContentDetails {
-            duration: Option<String>,
-            caption: Option<String>,
-        }
-
-        let video_response: VideoResponse = response.json().await?;
+        let video_response: types::VideoResponse = self
+            .execute_and_parse(self.client.get(&endpoint).await?, "fetch video details")
+            .await?;
 
         let videos = video_response
             .items
@@ -908,24 +712,9 @@ impl YouTubeClient {
         // First, fetch the current video details
         let endpoint = format!("videos?part=snippet,recordingDetails&id={}", video_id);
 
-        let response = self.client.get(&endpoint).await?.send().await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let text = response.text().await.unwrap_or_default();
-            return Err(anyhow!(
-                "Failed to fetch video details with status {}: {}",
-                status,
-                text
-            ));
-        }
-
-        #[derive(Deserialize)]
-        struct VideoResponse {
-            items: Vec<serde_json::Value>,
-        }
-
-        let video_response: VideoResponse = response.json().await?;
+        let video_response: types::VideoListResponse = self
+            .execute_and_parse(self.client.get(&endpoint).await?, "fetch video details")
+            .await?;
 
         if video_response.items.is_empty() {
             return Err(anyhow!("Video {} not found", video_id));
@@ -988,24 +777,9 @@ impl YouTubeClient {
         // First, fetch the current video details
         let endpoint = format!("videos?part=snippet,recordingDetails&id={}", video_id);
 
-        let response = self.client.get(&endpoint).await?.send().await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let text = response.text().await.unwrap_or_default();
-            return Err(anyhow!(
-                "Failed to fetch video details with status {}: {}",
-                status,
-                text
-            ));
-        }
-
-        #[derive(Deserialize)]
-        struct VideoResponse {
-            items: Vec<serde_json::Value>,
-        }
-
-        let video_response: VideoResponse = response.json().await?;
+        let video_response: types::VideoListResponse = self
+            .execute_and_parse(self.client.get(&endpoint).await?, "fetch video details")
+            .await?;
 
         if video_response.items.is_empty() {
             return Err(anyhow!("Video {} not found", video_id));
@@ -1064,24 +838,9 @@ impl YouTubeClient {
 
         let endpoint = format!("videos?part=snippet&id={}", video_id);
 
-        let response = self.client.get(&endpoint).await?.send().await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let text = response.text().await.unwrap_or_default();
-            return Err(anyhow!(
-                "Failed to fetch video details with status {}: {}",
-                status,
-                text
-            ));
-        }
-
-        #[derive(Deserialize)]
-        struct VideoResponse {
-            items: Vec<serde_json::Value>,
-        }
-
-        let video_response: VideoResponse = response.json().await?;
+        let video_response: types::VideoListResponse = self
+            .execute_and_parse(self.client.get(&endpoint).await?, "fetch video details")
+            .await?;
 
         if video_response.items.is_empty() {
             return Err(anyhow!("Video {} not found", video_id));
@@ -1147,34 +906,9 @@ impl YouTubeClient {
 
         let endpoint = format!("videos?part=snippet&id={}", video_id);
 
-        let response = self.client.get(&endpoint).await?.send().await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let text = response.text().await.unwrap_or_default();
-            return Err(anyhow!(
-                "Failed to fetch video details with status {}: {}",
-                status,
-                text
-            ));
-        }
-
-        #[derive(Deserialize)]
-        struct VideoResponse {
-            items: Vec<VideoItem>,
-        }
-
-        #[derive(Deserialize)]
-        struct VideoItem {
-            snippet: VideoSnippet,
-        }
-
-        #[derive(Deserialize)]
-        struct VideoSnippet {
-            description: String,
-        }
-
-        let video_response: VideoResponse = response.json().await?;
+        let video_response: types::VideoResponseSimple = self
+            .execute_and_parse(self.client.get(&endpoint).await?, "fetch video description")
+            .await?;
 
         if video_response.items.is_empty() {
             return Err(anyhow!("Video {} not found", video_id));
@@ -1209,24 +943,9 @@ impl YouTubeClient {
 
         let endpoint = format!("videos?part=snippet&id={}", video_id);
 
-        let response = self.client.get(&endpoint).await?.send().await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let text = response.text().await.unwrap_or_default();
-            return Err(anyhow!(
-                "Failed to fetch video details with status {}: {}",
-                status,
-                text
-            ));
-        }
-
-        #[derive(Deserialize)]
-        struct VideoResponse {
-            items: Vec<serde_json::Value>,
-        }
-
-        let video_response: VideoResponse = response.json().await?;
+        let video_response: types::VideoListResponse = self
+            .execute_and_parse(self.client.get(&endpoint).await?, "fetch video details")
+            .await?;
 
         if video_response.items.is_empty() {
             return Err(anyhow!("Video {} not found", video_id));
@@ -1317,53 +1036,9 @@ impl YouTubeClient {
 
         let endpoint = format!("captions?part=snippet&videoId={}", video_id);
 
-        let response = self.client.get(&endpoint).await?.send().await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let text = response.text().await.unwrap_or_default();
-            return Err(anyhow!(
-                "Failed to fetch captions with status {}: {}",
-                status,
-                text
-            ));
-        }
-
-        #[derive(Deserialize)]
-        struct CaptionResponse {
-            items: Vec<CaptionItem>,
-        }
-
-        #[derive(Deserialize)]
-        struct CaptionItem {
-            id: String,
-            snippet: CaptionSnippet,
-        }
-
-        #[derive(Deserialize)]
-        struct CaptionSnippet {
-            #[serde(rename = "videoId")]
-            video_id: String,
-            language: String,
-            #[allow(dead_code)]
-            #[serde(rename = "trackKind")]
-            track_kind: Option<String>,
-            #[serde(rename = "isAutoSynced")]
-            is_auto_synced: Option<bool>,
-            #[serde(rename = "isCC")]
-            is_cc: Option<bool>,
-            #[serde(rename = "isLarge")]
-            is_large: Option<bool>,
-            #[serde(rename = "isDraft")]
-            is_draft: Option<bool>,
-            #[serde(rename = "isEasyReader")]
-            is_easy_reader: Option<bool>,
-            #[serde(rename = "audioTrackType")]
-            audio_track_type: Option<String>,
-            name: Option<String>,
-        }
-
-        let caption_response: CaptionResponse = response.json().await?;
+        let caption_response: types::CaptionResponse = self
+            .execute_and_parse(self.client.get(&endpoint).await?, "fetch captions")
+            .await?;
 
         let captions: Vec<CaptionDetails> = caption_response
             .items
@@ -1490,12 +1165,7 @@ impl YouTubeClient {
             ));
         }
 
-        #[derive(Deserialize)]
-        struct CaptionUploadResponse {
-            id: String,
-        }
-
-        let upload_response: CaptionUploadResponse = response.json().await?;
+        let upload_response: types::CaptionUploadResponse = response.json().await?;
         let caption_id = upload_response.id;
 
         info!("Successfully uploaded subtitle with ID: {}", caption_id);
@@ -1532,30 +1202,15 @@ impl YouTubeClient {
             }
         });
 
-        let response = self
-            .client
-            .post("commentThreads?part=snippet")
-            .await?
-            .json(&comment_json)
-            .send()
+        let comment_response: types::CommentResponse = self
+            .execute_and_parse(
+                self.client
+                    .post("commentThreads?part=snippet")
+                    .await?
+                    .json(&comment_json),
+                "post comment",
+            )
             .await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let text = response.text().await.unwrap_or_default();
-            return Err(anyhow!(
-                "Failed to post comment with status {}: {}",
-                status,
-                text
-            ));
-        }
-
-        #[derive(Deserialize)]
-        struct CommentResponse {
-            id: String,
-        }
-
-        let comment_response: CommentResponse = response.json().await?;
         let comment_id = comment_response.id;
 
         info!("Successfully posted comment with ID: {}", comment_id);
@@ -1584,11 +1239,6 @@ impl YouTubeClient {
         // Fetch the comment thread first, with retries to handle propagation delay.
         let endpoint = format!("commentThreads?part=snippet&id={}", comment_id);
 
-        #[derive(Deserialize)]
-        struct CommentThreadResponse {
-            items: Vec<serde_json::Value>,
-        }
-
         let mut retry_count = 0;
         let max_retries = 5;
         let retry_delay_ms = 1000u64;
@@ -1606,7 +1256,7 @@ impl YouTubeClient {
                 ));
             }
 
-            let comment_response: CommentThreadResponse = response.json().await?;
+            let comment_response: types::CommentThreadResponse = response.json().await?;
 
             if !comment_response.items.is_empty() {
                 break comment_response.items[0].clone();
@@ -1684,46 +1334,9 @@ impl YouTubeClient {
             video_id
         );
 
-        let response = self.client.get(&endpoint).await?.send().await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let text = response.text().await.unwrap_or_default();
-            return Err(anyhow!(
-                "Failed to fetch comments with status {}: {}",
-                status,
-                text
-            ));
-        }
-
-        #[derive(Deserialize)]
-        struct CommentsResponse {
-            items: Vec<CommentItem>,
-        }
-
-        #[derive(Deserialize)]
-        struct CommentItem {
-            snippet: CommentSnippet,
-        }
-
-        #[derive(Deserialize)]
-        struct CommentSnippet {
-            #[serde(rename = "topLevelComment")]
-            top_level_comment: TopLevelComment,
-        }
-
-        #[derive(Deserialize)]
-        struct TopLevelComment {
-            snippet: TextSnippet,
-        }
-
-        #[derive(Deserialize)]
-        struct TextSnippet {
-            #[serde(rename = "textOriginal")]
-            text_original: String,
-        }
-
-        let comments_response: CommentsResponse = response.json().await?;
+        let comments_response: types::CommentsResponse = self
+            .execute_and_parse(self.client.get(&endpoint).await?, "fetch comments")
+            .await?;
 
         // Check if any comment matches the text we're trying to post
         for item in comments_response.items {
@@ -1754,20 +1367,6 @@ impl YouTubeClient {
         // Step 1: fetch the video to learn which channel owns it.
         // The JSON field is "channelId" (camelCase) so we must rename explicitly.
         let video_channel_id: Option<String> = {
-            #[derive(Deserialize)]
-            struct VideoResponse {
-                items: Vec<VideoItem>,
-            }
-            #[derive(Deserialize)]
-            struct VideoItem {
-                snippet: VideoSnippet,
-            }
-            #[derive(Deserialize)]
-            struct VideoSnippet {
-                #[serde(rename = "channelId")]
-                channel_id: String,
-            }
-
             let video_response = self
                 .client
                 .get(&format!("videos?part=snippet&id={}", video_id))
@@ -1776,12 +1375,16 @@ impl YouTubeClient {
                 .await?;
 
             if video_response.status().is_success() {
-                match video_response.json::<VideoResponse>().await {
+                match video_response.json::<types::VideoResponseChannel>().await {
                     Ok(vr) => {
                         if let Some(item) = vr.items.first() {
-                            let cid = item.snippet.channel_id.clone();
-                            info!("Video {} belongs to channel {}", video_id, cid);
-                            Some(cid)
+                            if let Some(cid) = &item.snippet.channel_id {
+                                info!("Video {} belongs to channel {}", video_id, cid);
+                                Some(cid.clone())
+                            } else {
+                                warn!("Channel ID not found in video response");
+                                None
+                            }
                         } else {
                             warn!("Video {} not found in API response", video_id);
                             None
@@ -1807,42 +1410,6 @@ impl YouTubeClient {
         // The correct API shape (matching comment_exists) is:
         //   item.snippet.topLevelComment.snippet.authorChannelId.value
         //   item.snippet.isRepliesDisabled
-        #[derive(Deserialize)]
-        struct CommentsResponse {
-            #[serde(default)]
-            items: Vec<CommentItem>,
-        }
-
-        #[derive(Deserialize)]
-        struct CommentItem {
-            snippet: ThreadSnippet,
-        }
-
-        #[derive(Deserialize)]
-        struct ThreadSnippet {
-            #[serde(rename = "isRepliesDisabled", default)]
-            is_replies_disabled: bool,
-            #[serde(rename = "topLevelComment")]
-            top_level_comment: TopLevelComment,
-        }
-
-        #[derive(Deserialize)]
-        struct TopLevelComment {
-            snippet: CommentSnippet,
-        }
-
-        #[derive(Deserialize)]
-        struct CommentSnippet {
-            #[serde(rename = "authorChannelId", default)]
-            author_channel_id: Option<AuthorChannelId>,
-        }
-
-        #[derive(Deserialize, Default)]
-        struct AuthorChannelId {
-            #[serde(default)]
-            value: Option<String>,
-        }
-
         let endpoint = format!(
             "commentThreads?part=snippet&videoId={}&textFormat=plainText",
             video_id
@@ -1859,7 +1426,7 @@ impl YouTubeClient {
             ));
         }
 
-        let comments_response: CommentsResponse = response.json().await?;
+        let comments_response: types::CommentsResponseAuthor = response.json().await?;
         let total_items = comments_response.items.len();
         debug!(
             "Received {} comment threads for video {}",
@@ -1876,13 +1443,12 @@ impl YouTubeClient {
                     .snippet
                     .author_channel_id
                     .as_ref()
-                    .and_then(|id| id.value.as_deref())
-                    .unwrap_or("");
+                    .and_then(|id| id.value.as_deref());
                 debug!(
                     "Comment author channel: {:?}, owner channel: {}",
                     author, channel_id
                 );
-                if author == channel_id {
+                if author == Some(channel_id.as_str()) {
                     info!(
                         "Found comment from channel owner {} on video {} — treating as pinned",
                         channel_id, video_id
@@ -2076,10 +1642,8 @@ pub async fn upload_batch_concurrent(
         .map_err(|err| anyhow!("Failed to initialize YouTubeUploader: {}", err))?;
     let semaphore = Semaphore::new(max_concurrent);
 
-    // Parse files into Vec<Vec<String>>
     let parsed_files = config.parse_files();
 
-    // Extract common values to avoid repeated access (using Arc for efficient sharing)
     let common_keywords = Arc::new(config.common.keywords.clone());
     let common_playlist_id = Arc::new(config.common.playlist_id.clone());
     let common_prefix = Arc::new(config.common.prefix.clone());

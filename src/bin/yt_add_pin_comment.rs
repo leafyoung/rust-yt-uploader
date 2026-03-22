@@ -1,21 +1,8 @@
 use anyhow::Result;
 use clap::Parser;
-use rust_yt_uploader::YouTubeClient;
+use rust_yt_uploader::{YouTubeClient, init_logging};
 use std::fs;
 use std::path::Path;
-
-/// Initialize tracing/logging
-fn init_logging() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .with_target(false)
-        .with_thread_ids(false)
-        .with_file(true)
-        .with_line_number(true)
-        .init();
-}
 
 /// YouTube video comment poster CLI
 #[derive(Parser)]
@@ -56,7 +43,6 @@ struct Cli {
 #[tokio::main]
 async fn main() -> Result<()> {
     init_logging();
-
     let cli = Cli::parse();
 
     let comment_path = Path::new(&cli.comment_file);

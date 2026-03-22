@@ -47,7 +47,7 @@ impl GoogleOAuth {
     }
 
     /// Create an authenticated request builder with Authorization header
-    async fn _authenticated_request(
+    async fn authenticated_request(
         &self,
         method: reqwest::Method,
         url: &str,
@@ -61,34 +61,31 @@ impl GoogleOAuth {
     /// Create a GET request to the YouTube API
     pub async fn get(&self, endpoint: &str) -> Result<RequestBuilder> {
         let url = format!("{}/{}", self.base_url, endpoint.trim_start_matches('/'));
-        self._authenticated_request(reqwest::Method::GET, &url)
-            .await
+        self.authenticated_request(reqwest::Method::GET, &url).await
     }
 
     /// Create a POST request to the YouTube API
     pub async fn post(&self, endpoint: &str) -> Result<RequestBuilder> {
         let url = format!("{}/{}", self.base_url, endpoint.trim_start_matches('/'));
-        self._authenticated_request(reqwest::Method::POST, &url)
+        self.authenticated_request(reqwest::Method::POST, &url)
             .await
     }
 
     /// Create a PUT request to the YouTube API
-    #[allow(unused)]
     pub async fn put(&self, endpoint: &str) -> Result<RequestBuilder> {
         let url = format!("{}/{}", self.base_url, endpoint.trim_start_matches('/'));
-        self._authenticated_request(reqwest::Method::PUT, &url)
-            .await
+        self.authenticated_request(reqwest::Method::PUT, &url).await
     }
 
-    /// Create a POST request to the YouTube API
+    /// Create a DELETE request to the YouTube API
     pub async fn delete(&self, endpoint: &str) -> Result<RequestBuilder> {
         let url = format!("{}/{}", self.base_url, endpoint.trim_start_matches('/'));
-        self._authenticated_request(reqwest::Method::DELETE, &url)
+        self.authenticated_request(reqwest::Method::DELETE, &url)
             .await
     }
 
     /// Create a generic authenticated request
     pub async fn request(&self, method: reqwest::Method, url: &str) -> Result<RequestBuilder> {
-        self._authenticated_request(method, url).await
+        self.authenticated_request(method, url).await
     }
 }

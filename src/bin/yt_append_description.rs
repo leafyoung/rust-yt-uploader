@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use rust_yt_uploader::YouTubeClient;
+use rust_yt_uploader::{YouTubeClient, init_logging};
 use std::fs;
 use std::path::Path;
 
@@ -29,6 +29,7 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    init_logging();
     let cli = Cli::parse();
 
     let content_path = Path::new(&cli.content_file);

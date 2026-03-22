@@ -6,18 +6,11 @@
 use anyhow::Result;
 use rust_yt_uploader::{
     BatchConfigRoot, CommonConfig, IndividualConfigRoot, PrivacyStatus, VideoCategory,
-    youtube_client,
 };
-use std::io::Write;
-use tempfile::NamedTempFile;
 use validator::Validate;
 
-/// Create a temporary video file for testing
-fn create_test_video_file() -> NamedTempFile {
-    let mut file = NamedTempFile::new().expect("Failed to create temp file");
-    writeln!(file, "fake video content").expect("Failed to write to temp file");
-    file
-}
+mod common;
+use common::create_test_video_file;
 
 #[test]
 fn test_individual_config_parsing() -> Result<()> {
@@ -241,14 +234,17 @@ fn test_retry_config() {
 #[tokio::test]
 #[ignore]
 async fn test_youtube_authentication() -> Result<()> {
-    use rust_yt_uploader::GoogleOAuth;
+    use rust_yt_uploader::{
+        GoogleOAuth, build_youtube_base_url, default_credentials_path, default_token_path,
+        default_youtube_scopes,
+    };
 
     // This test requires valid client_secret.json and token files
     let client = GoogleOAuth::new(
-        youtube_client::default_credentials_path(),
-        youtube_client::default_token_path(),
-        youtube_client::default_youtube_scopes(),
-        youtube_client::build_youtube_base_url(),
+        default_credentials_path(),
+        default_token_path(),
+        default_youtube_scopes(),
+        build_youtube_base_url(),
     )
     .await;
 

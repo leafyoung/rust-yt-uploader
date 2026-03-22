@@ -1,8 +1,8 @@
 [package]
 name = "rust-yt-uploader"
-version = "0.2.15"
+version = "0.2.16"
 edition = "2024"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["Yang Ye <yy@runchee.com>"]
 description = "High-performance YouTube video uploader in Rust with OAuth 2.0, concurrent uploads, and comprehensive validation"
 license = "MIT"
 repository = "https://github.com/example-org/rust-yt-uploader"

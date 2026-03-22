@@ -9,18 +9,39 @@ pub mod models;
 pub mod progress_stream;
 pub mod retry;
 pub mod video_process;
+pub mod youtube;
 pub mod youtube_client;
 
 // Re-export commonly used types
-pub use google_oauth::{Credentials, GoogleOAuth};
+pub use google_oauth::GoogleOAuth;
 pub use models::{
     BatchConfigRoot, CommonConfig, ConfigFormat, IndividualConfigRoot, PrivacyStatus, RetryConfig,
     VideoCategory, VideoConfig, VideoUploadOptions,
 };
 pub use video_process::merge_videos_with_ffmpeg;
+pub use youtube::{
+    build_youtube_base_url, build_youtube_direct_upload_url, default_credentials_path,
+    default_token_path, default_youtube_scopes,
+};
 pub use youtube_client::{
-    CaptionDetails, VideoDetails, YouTubeClient, upload_batch_concurrent, upload_batch_sequential,
-    upload_individual_sequential,
+    CaptionDetails, NoProgress, ProgressBarReporter, ProgressReporter, VideoDetails, YouTubeClient,
+    upload_batch_concurrent, upload_batch_sequential, upload_individual_sequential,
 };
 
 pub use retry::retry_with_backoff;
+
+/// Initialize tracing/logging with default configuration.
+///
+/// This function sets up tracing with environment-based log level filtering.
+/// Set the `RUST_LOG` environment variable to control the log level (e.g., `RUST_LOG=debug`).
+pub fn init_logging() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
+        )
+        .with_target(false)
+        .with_thread_ids(false)
+        .with_file(true)
+        .with_line_number(true)
+        .init();
+}

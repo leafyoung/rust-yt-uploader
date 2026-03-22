@@ -1,4 +1,4 @@
-use rust_yt_uploader::youtube_client::YouTubeClient;
+use rust_yt_uploader::{init_logging, youtube_client::YouTubeClient};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
@@ -13,6 +13,7 @@ struct VideoInfo {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    init_logging();
     // Get JSON file path from command line argument
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
