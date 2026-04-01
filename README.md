@@ -123,35 +123,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ```yaml
 common:
-    prefix: "My Video Series"
-    keywords: "rust,youtube,programming"
-    category: ScienceTechnology
-    privacyStatus: "private"
-    playlistId: "PL1234567890123456"
+  prefix: "My Video Series"
+  keywords: "rust,youtube,programming"
+  category: ScienceTechnology
+  privacyStatus: "private"
+  playlistId: "PL1234567890123456"
 
 titles:
-    - "Episode 1: Introduction"
-    - "Episode 2: Getting Started"
+  - "Episode 1: Introduction"
+  - "Episode 2: Getting Started"
 
 files:
-    - "/path/to/video1.mp4"
-    - "/path/to/video2.mp4"
-    # Each entry can also contain multiple files separated by comma, semicolon, or space:
-    # - "/path/to/part1.mp4;/path/to/part2.mp4"
-    # - "/path/to/video3.mp4, /path/to/video3_extra.mp4"
+  - "/path/to/video1.mp4"
+  - "/path/to/video2.mp4"
+  # Each entry can also contain multiple files separated by comma, semicolon, or space:
+  # - "/path/to/part1.mp4;/path/to/part2.mp4"
+  # - "/path/to/video3.mp4, /path/to/video3_extra.mp4"
 ```
 
 #### Individual Format
 
 ```yaml
 videos:
-    - title: "My First Video"
-      description: "This is my first video"
-      keywords: "rust,youtube"
-      file: "/path/to/video1.mp4"
-      category: ScienceTechnology
-      privacyStatus: "private"
-      playlistId: "PL1234567890123456"
+  - title: "My First Video"
+    description: "This is my first video"
+    keywords: "rust,youtube"
+    file: "/path/to/video1.mp4"
+    category: ScienceTechnology
+    privacyStatus: "private"
+    playlistId: "PL1234567890123456"
 ```
 
 ### Configuration Reference
