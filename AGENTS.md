@@ -91,6 +91,16 @@ All commits run: `cargo fmt` → `cargo clippy` → `cargo test` → trailing wh
 **To bypass** (never recommended): `git commit --no-verify`
 **To fix formatting failures**: Run `cargo fmt` then re-stage files
 
+### Post-Commit CI Verification Checklist
+
+After pushing any commit, agents MUST verify CI passes:
+
+- [ ] Push commit and note the run ID
+- [ ] Run `gh run watch --repo leafyoung/rust-yt-uploader --exit-status` until completion
+- [ ] If CI fails, run `gh run view --log-failed --repo leafyoung/rust-yt-uploader` to diagnose
+- [ ] Fix any issues and re-push until all jobs pass
+- [ ] Only proceed to next task after CI is green
+
 ## Key Patterns in Codebase
 
 ### Error Context
