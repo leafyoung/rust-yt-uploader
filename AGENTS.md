@@ -142,3 +142,44 @@ Update `Cargo.toml` version before committing; pre-commit hook validates changes
 **Ignored tests** (`#[ignore]`): Run explicitly with `cargo test -- --ignored`
 
 Example: `cargo test test_batch_config -- --nocapture`
+
+## GitHub CI Verification
+
+After pushing commits, always verify CI passes using `gh` CLI (not direct links):
+
+```bash
+# View CI run status (get run ID from push output or list)
+gh run list --repo leafyoung/rust-yt-uploader --limit 3
+
+# Watch CI run progress with live updates
+gh run watch <run-id> --repo leafyoung/rust-yt-uploader --exit-status
+
+# If CI fails, view detailed failure logs
+gh run view <run-id> --repo leafyoung/rust-yt-uploader --log-failed
+
+# View specific job logs
+gh run view <run-id> --repo leafyoung/rust-yt-uploader --job <job-id>
+```
+
+### Common CI Issues and Fixes
+
+1. **Rust version too old**: Dependencies may require newer Rust. Update `rust-version` in `Cargo.toml` and CI matrix.
+2. **Mold linker not available**: CI runners don't have mold installed. Use `rui314/setup-mold@v1` action in workflow.
+3. **Security vulnerabilities**: `cargo audit` may find issues. Update vulnerable dependencies via `cargo update`.
+4. **Node.js deprecation warnings**: Use newer action versions (e.g., `Swatinem/rust-cache@v2` instead of `actions/cache@v3`).
+
+### Workflow Example
+
+```bash
+# 1. Make changes and commit
+git add . && git commit -m "fix: something"
+
+# 2. Push and note the run ID from output
+git push
+
+# 3. Watch CI until completion
+gh run watch --repo leafyoung/rust-yt-uploader --exit-status
+
+# 4. If failed, diagnose and fix
+gh run view --log-failed --repo leafyoung/rust-yt-uploader
+```

@@ -2,7 +2,7 @@
 name = "rust-yt-uploader"
 version = "0.2.16"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.89"
 authors = ["Yang Ye <yy@runchee.com>"]
 description = "High-performance YouTube video uploader in Rust with OAuth 2.0, concurrent uploads, and comprehensive validation"
 license = "MIT"
