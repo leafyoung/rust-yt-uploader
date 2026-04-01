@@ -8,6 +8,9 @@ on:
 
 env:
     CARGO_TERM_COLOR: always
+    # Disable mold linker for CI (not available on GitHub Actions runners)
+    CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: ""
+    RUSTFLAGS: ""
 
 jobs:
     test:
@@ -15,7 +18,7 @@ jobs:
         runs-on: ubuntu-latest
         strategy:
             matrix:
-                rust: [1.85.0, stable]
+                rust: [1.89.0, stable]
 
         steps:
             - uses: actions/checkout@v4
@@ -26,23 +29,10 @@ jobs:
                   toolchain: ${{ matrix.rust }}
                   components: rustfmt, clippy
 
-            - name: Cache cargo registry
-              uses: actions/cache@v3
+            - name: Setup Rust cache
+              uses: Swatinem/rust-cache@v2
               with:
-                  path: ~/.cargo/registry
-                  key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-
-            - name: Cache cargo index
-              uses: actions/cache@v3
-              with:
-                  path: ~/.cargo/git
-                  key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
-
-            - name: Cache cargo build
-              uses: actions/cache@v3
-              with:
-                  path: target
-                  key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+                  key: ${{ matrix.rust }}
 
             - name: Check formatting
               run: cargo fmt -- --check
@@ -63,7 +53,7 @@ jobs:
             - name: Install Rust
               uses: dtolnay/rust-toolchain@master
               with:
-                  toolchain: 1.85.0
+                  toolchain: stable
 
             - name: Install cargo-audit
               run: cargo install cargo-audit
