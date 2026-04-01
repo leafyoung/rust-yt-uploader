@@ -1,8 +1,9 @@
 use anyhow::Result;
 use clap::Parser;
-use rust_yt_uploader::{YouTubeClient, init_logging};
+use rust_yt_uploader::{YouTubeClient, init_logging, validate_profile_name};
 use std::fs;
 use std::path::Path;
+use tracing::info;
 
 /// YouTube video comment poster CLI
 #[derive(Parser)]
@@ -38,12 +39,21 @@ struct Cli {
     /// Force posting even if a pinned comment is detected (or detection fails)
     #[arg(long)]
     force: bool,
+
+    /// Profile name for OAuth (alphanumeric only)
+    /// Credentials: client_secret-{profile}.json, Token: youtube-oauth2-{profile}.json
+    #[arg(short, long, value_name = "PROFILE")]
+    profile: String,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     init_logging();
     let cli = Cli::parse();
+
+    // Validate profile name
+    validate_profile_name(&cli.profile)?;
+    info!("Using profile: {}", cli.profile);
 
     let comment_path = Path::new(&cli.comment_file);
     if !comment_path.exists() {
@@ -77,7 +87,7 @@ async fn main() -> Result<()> {
     println!("─────────────────────────────────────────");
     println!();
 
-    let client = YouTubeClient::new().await?;
+    let client = YouTubeClient::new(&cli.profile).await?;
 
     // Bail out early if the video already has a pinned comment and the flag is set
     if cli.skip_if_pinned {
@@ -130,8 +140,16 @@ async fn main() -> Result<()> {
     println!("  Comment ID: {}", comment_id);
 
     if cli.pin {
-        client.pin_comment(&comment_id).await?;
-        println!("✓ Successfully pinned comment");
+        match client.pin_comment(&comment_id).await {
+            Ok(()) => {
+                println!("✓ Successfully pinned comment");
+            }
+            Err(e) => {
+                println!();
+                println!("⚠ Failed to pin comment after retries: {}", e);
+                println!("Comment was posted successfully; exiting gracefully...");
+            }
+        }
     }
 
     Ok(())

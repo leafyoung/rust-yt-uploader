@@ -30,21 +30,22 @@ rust-yt-uploader = "0.2.8"
 #### Prerequisites
 
 - A Google Cloud project with YouTube Data API v3 enabled
-- OAuth 2.0 client credentials (`client_secret.json`)
+- OAuth 2.0 client credentials
 
 1. Go to the [Google Cloud Console](https://console.cloud.google.com/)
 2. Create a new project or select an existing one
 3. Enable the YouTube Data API v3
 4. Create OAuth 2.0 credentials (Desktop application)
-5. Download the credentials as `client_secret.json`
-6. Place the file in the parent directory of the Rust project
+5. Download the credentials and save as `client_secret-{profile}.json` (e.g., `client_secret-work.json`)
+6. Place the file in the working directory
 
-The first time you run the uploader, it will:
+The first time you run the uploader with a profile, it will:
 
-1. Display an authorization URL
-2. Open your browser for authentication
-3. Ask you to paste the authorization code
-4. Save the tokens to `youtube-oauth2.json`
+1. Load credentials from `client_secret-{profile}.json`
+2. Display an authorization URL
+3. Open your browser for authentication
+4. Ask you to paste the authorization code
+5. Save the tokens to `youtube-oauth2-{profile}.json`
 
 #### Build from Source
 
@@ -70,11 +71,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load configuration
     let config = BatchConfigRoot::from_file("config.yaml")?;
 
-    // Create authenticated client
-    let client = YouTubeClient::new(
-        "client_secret.json",
-        "youtube-oauth2.json"
-    ).await?;
+    // Create authenticated client with profile
+    // Credentials: client_secret-work.json
+    // Token: youtube-oauth2-work.json
+    let client = YouTubeClient::new("work").await?;
 
     // Upload videos
     client.upload_batch(&config).await?;
@@ -89,14 +89,15 @@ For more advanced use cases requiring direct API access:
 
 ```rust
 use rust_yt_uploader::google_oauth::{GoogleOAuth, Credentials};
-use rust_yt_uploader::youtube_client;
+use rust_yt_uploader::{youtube_client, credentials_path_for_profile, token_path_for_profile};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create OAuth client with custom scopes
+    // Create OAuth client with profile-based paths
+    let profile = "work";
     let oauth_client = GoogleOAuth::new(
-        "client_secret.json",
-        "youtube-oauth2.json",
+        credentials_path_for_profile(profile)?,  // client_secret-work.json
+        token_path_for_profile(profile)?,        // youtube-oauth2-work.json
         youtube_client::default_youtube_scopes(),
         youtube_client::build_youtube_base_url(),
     ).await?;
@@ -190,17 +191,17 @@ Example: `PL1234567890123456`
 #### yt-upload: Upload Videos
 
 ```bash
-# Sequential upload (default)
-yt-upload --file config.yaml
+# Sequential upload with profile (required)
+yt-upload --file config.yaml --profile work
 
 # Sequential upload with progress bars
-yt-upload --file config.yaml --progress
+yt-upload --file config.yaml --profile work --progress
 
 # Concurrent upload (3 concurrent by default)
-yt-upload --file config.yaml --async
+yt-upload --file config.yaml --profile work --async
 
 # Custom concurrency level
-yt-upload --file config.yaml --async --concurrent 5
+yt-upload --file config.yaml --profile work --async --concurrent 5
 ```
 
 #### yt-list: List and Export Videos
@@ -213,25 +214,20 @@ The `yt-list` tool lists all videos from your YouTube channel with comprehensive
 **Basic Usage:**
 
 ```bash
-# List all videos in table format (default)
-yt-list
+# List all videos in table format (default) - profile required
+yt-list --profile work
 
 # Export as JSON (for programmatic access)
-yt-list --format json
+yt-list --profile work --format json
 
 # Export as JSONL (one video per line, useful for piping)
-yt-list --format jsonl
+yt-list --profile work --format jsonl
 
 # Save to file instead of stdout
-yt-list --format json --output videos.json
+yt-list --profile work --format json --output videos.json
 
 # Show only video IDs (one per line)
-yt-list --ids-only
-
-# Filter by privacy status
-yt-list --status private
-yt-list --status public
-yt-list --status unlisted
+yt-list --profile work --ids-only
 ```
 
 **Output Formats:**
@@ -258,14 +254,14 @@ Each video includes:
 **Examples:**
 
 ```bash
-# Export public videos to JSON and pipe to jq for further processing
-yt-list --format json --status public | jq '.[].id'
+# Export videos to JSON and pipe to jq for further processing
+yt-list --profile work --format json | jq '.[].id'
 
 # Extract video IDs and titles for batch download
-yt-list --format jsonl | jq -r '[.id, .title] | join(": ")'
+yt-list --profile work --format jsonl | jq -r '[.id, .title] | join(": ")'
 
 # Save all video metadata for backup
-yt-list --format json --output my_videos_backup.json
+yt-list --profile work --format json --output my_videos_backup.json
 ```
 
 #### yt-update-lang: Update Language Metadata
@@ -280,17 +276,17 @@ For any videos that don't already have these values set.
 **Basic Usage:**
 
 ```bash
-# Show what would be updated (dry run)
-yt-update-lang --dry-run
+# Show what would be updated (dry run) - profile required
+yt-update-lang --profile work --dry-run
 
 # Update all public videos with language metadata
-yt-update-lang
+yt-update-lang --profile work
 
 # Verbose mode - show each video being processed
-yt-update-lang --verbose
+yt-update-lang --profile work --verbose
 
 # Only update videos with no language metadata at all
-yt-update-lang --only-empty
+yt-update-lang --profile work --only-empty
 ```
 
 **Features:**
@@ -305,16 +301,16 @@ yt-update-lang --only-empty
 
 ```bash
 # Preview changes before applying
-yt-update-lang --dry-run
+yt-update-lang --profile work --dry-run
 
 # Update with verbose output to see what's happening
-yt-update-lang --verbose
+yt-update-lang --profile work --verbose
 
 # Combine with yt-list to verify your videos first
-yt-list --status public --format json | jq '.[] | {id, title, default_language, default_audio_language}'
+yt-list --profile work --format json | jq '.[] | {id, title, default_language, default_audio_language}'
 
 # Then update them
-yt-update-lang
+yt-update-lang --profile work
 ```
 
 **Use Cases:**
@@ -336,7 +332,7 @@ yt-update-lang
 
 ### Security Notes
 
-- Never commit `client_secret.json` or token files to version control
+- Never commit `client_secret-{profile}.json` or `youtube-oauth2-{profile}.json` files to version control
 - Store credentials securely with appropriate file permissions (600)
 - Regularly rotate OAuth tokens if needed
 - Use private/unlisted privacy settings for sensitive content

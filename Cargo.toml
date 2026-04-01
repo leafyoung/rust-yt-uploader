@@ -61,13 +61,14 @@ default = []
 use-yup-oauth2 = ["yup-oauth2"]
 
 [dependencies]
-# Async runtime - minimal features for faster compilation
+# Async runtime - optimized for I/O and process management
 tokio = { version = "1.50.0", features = [
     "macros",
     "rt-multi-thread",
     "time",
     "sync",
     "fs",
+    "process",
 ] }
 
 # HTTP client - native-tls uses system OpenSSL, eliminating the 4.4s aws-lc-sys C build.

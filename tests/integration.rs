@@ -235,14 +235,18 @@ fn test_retry_config() {
 #[ignore]
 async fn test_youtube_authentication() -> Result<()> {
     use rust_yt_uploader::{
-        GoogleOAuth, build_youtube_base_url, default_credentials_path, default_token_path,
-        default_youtube_scopes,
+        GoogleOAuth, build_youtube_base_url, credentials_path_for_profile, default_youtube_scopes,
+        token_path_for_profile,
     };
 
-    // This test requires valid client_secret.json and token files
+    // This test requires valid client_secret-test.json and token files
+    // Using 'test' profile for testing
+    let profile = "test";
+    let credentials_path = credentials_path_for_profile(profile)?;
+    let token_path = token_path_for_profile(profile)?;
     let client = GoogleOAuth::new(
-        default_credentials_path(),
-        default_token_path(),
+        credentials_path,
+        token_path,
         default_youtube_scopes(),
         build_youtube_base_url(),
     )
@@ -261,7 +265,8 @@ async fn test_video_upload() -> Result<()> {
     let temp_file = create_test_video_file();
     let file_path = temp_file.path().to_string_lossy().to_string();
 
-    let uploader = YouTubeClient::new().await?;
+    // Using 'test' profile for testing
+    let uploader = YouTubeClient::new("test").await?;
 
     let options = VideoUploadOptions {
         file: file_path,

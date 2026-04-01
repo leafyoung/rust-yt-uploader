@@ -25,8 +25,10 @@ Thumbs.db
 
 # OAuth credentials and tokens (NEVER commit these)
 client_secret.json
+client_secret-*.json
 *-oauth2.json
 youtube-oauth2.json
+youtube-oauth2-*.json
 
 # Test files
 test_videos/

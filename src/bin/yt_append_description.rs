@@ -1,8 +1,9 @@
 use anyhow::Result;
 use clap::Parser;
-use rust_yt_uploader::{YouTubeClient, init_logging};
+use rust_yt_uploader::{YouTubeClient, init_logging, validate_profile_name};
 use std::fs;
 use std::path::Path;
+use tracing::info;
 
 /// YouTube video description appender CLI
 #[derive(Parser)]
@@ -25,12 +26,21 @@ struct Cli {
 
     /// Path to text file containing content to append
     content_file: String,
+
+    /// Profile name for OAuth (alphanumeric only)
+    /// Credentials: client_secret-{profile}.json, Token: youtube-oauth2-{profile}.json
+    #[arg(short, long, value_name = "PROFILE")]
+    profile: String,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     init_logging();
     let cli = Cli::parse();
+
+    // Validate profile name
+    validate_profile_name(&cli.profile)?;
+    info!("Using profile: {}", cli.profile);
 
     let content_path = Path::new(&cli.content_file);
     if !content_path.exists() {
@@ -61,7 +71,7 @@ async fn main() -> Result<()> {
     println!("─────────────────────────────────────────");
     println!();
 
-    let client = YouTubeClient::new().await?;
+    let client = YouTubeClient::new(&cli.profile).await?;
 
     // Check if content already exists in the description
     println!("Checking for duplicate content in video description...");

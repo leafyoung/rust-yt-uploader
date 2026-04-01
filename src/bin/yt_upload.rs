@@ -6,7 +6,9 @@
 
 use anyhow::Result;
 use clap::Parser;
-use rust_yt_uploader::{BatchConfigRoot, ConfigFormat, IndividualConfigRoot, init_logging};
+use rust_yt_uploader::{
+    BatchConfigRoot, ConfigFormat, IndividualConfigRoot, init_logging, validate_profile_name,
+};
 use rust_yt_uploader::{
     upload_batch_concurrent, upload_batch_sequential, upload_individual_sequential,
 };
@@ -42,6 +44,11 @@ struct Cli {
     /// Show progress bars during upload
     #[arg(long, default_value_t = true)]
     progress: bool,
+
+    /// Profile name for OAuth (alphanumeric only)
+    /// Credentials: client_secret-{profile}.json, Token: youtube-oauth2-{profile}.json
+    #[arg(short, long, value_name = "PROFILE")]
+    profile: String,
 }
 
 /// Detect which YAML schema format is being used.
@@ -82,6 +89,10 @@ async fn main() -> Result<()> {
 
     info!("Starting YouTube uploader");
 
+    // Validate profile name
+    validate_profile_name(&cli.profile)?;
+    info!("Using profile: {}", cli.profile);
+
     // Read and parse configuration file
     let config_content = std::fs::read_to_string(&cli.file).map_err(|e| {
         anyhow::anyhow!("Failed to read config file '{}': {}", cli.file.display(), e)
@@ -95,7 +106,7 @@ async fn main() -> Result<()> {
             let config: IndividualConfigRoot = serde_yaml_ng::from_str(&config_content)
                 .map_err(|e| anyhow::anyhow!("Failed to parse individual config: {}", e))?;
 
-            upload_individual_sequential(config, cli.progress).await?;
+            upload_individual_sequential(config, cli.progress, &cli.profile).await?;
         }
         ConfigFormat::Batch => {
             info!("Detected batch YAML schema format");
@@ -108,11 +119,12 @@ async fn main() -> Result<()> {
                     cli.concurrent
                 );
                 let video_ids =
-                    upload_batch_concurrent(config, cli.concurrent, cli.progress).await?;
+                    upload_batch_concurrent(config, cli.concurrent, cli.progress, &cli.profile)
+                        .await?;
                 info!("All {} videos uploaded successfully", video_ids.len());
             } else {
                 info!("Using sequential upload mode");
-                upload_batch_sequential(config, cli.progress).await?;
+                upload_batch_sequential(config, cli.progress, &cli.profile).await?;
             }
         }
     }

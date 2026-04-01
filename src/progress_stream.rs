@@ -11,10 +11,16 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
-use tokio::time::sleep;
+use tokio::time::Sleep;
 use tokio_util::bytes::Bytes;
 
 use crate::youtube_client::ProgressReporter;
+
+/// Default buffer size for file reads (256KB for optimal throughput)
+pub const DEFAULT_BUFFER_SIZE: usize = 256 * 1024;
+
+/// Optimal chunk size for network uploads (8MB - balances memory and throughput)
+pub const UPLOAD_CHUNK_SIZE: usize = 8 * 1024 * 1024;
 
 /// Stream wrapper that tracks upload progress and throttles bandwidth
 pub struct ProgressStream<S> {
@@ -26,6 +32,8 @@ pub struct ProgressStream<S> {
     bandwidth_limit: Option<u64>, // bytes per second
     last_update: Instant,
     tokens: f64, // Token bucket for rate limiting
+    /// Pre-scheduled sleep for throttling (avoids spawning tasks)
+    pending_sleep: Option<Pin<Box<Sleep>>>,
 }
 
 impl<S> ProgressStream<S>
@@ -56,7 +64,40 @@ where
             bandwidth_limit,
             last_update: Instant::now(),
             tokens: bandwidth_limit.map(|limit| limit as f64).unwrap_or(0.0),
+            pending_sleep: None,
         }
+    }
+
+    /// Process bandwidth throttling and return the item
+    fn process_item(&mut self, bytes: Bytes) -> Option<Result<Bytes, std::io::Error>> {
+        let bytes_len = bytes.len() as u64;
+
+        // Apply bandwidth throttling if enabled
+        if let Some(limit) = self.bandwidth_limit {
+            let required_tokens = bytes_len as f64;
+
+            if self.tokens < required_tokens {
+                // Not enough tokens, schedule sleep without spawning
+                let tokens_needed = required_tokens - self.tokens;
+                let sleep_duration = Duration::from_secs_f64(tokens_needed / (limit as f64));
+
+                // Use tokio::time::sleep directly instead of spawning
+                self.pending_sleep = Some(Box::pin(tokio::time::sleep(sleep_duration)));
+
+                // Return None to trigger re-poll
+                return None;
+            }
+
+            // Consume tokens
+            self.tokens -= required_tokens;
+        }
+
+        // Update progress
+        let new_total = self.bytes_sent.fetch_add(bytes_len, Ordering::Relaxed) + bytes_len;
+        self.progress_reporter
+            .report_progress(new_total, self.total_bytes, &self.filename);
+
+        Some(Ok(bytes))
     }
 }
 
@@ -66,57 +107,50 @@ where
 {
     type Item = Result<Bytes, std::io::Error>;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        // Refill token bucket based on elapsed time (for bandwidth throttling)
-        if let Some(limit) = self.bandwidth_limit {
-            let now = Instant::now();
-            let elapsed = now.duration_since(self.last_update).as_secs_f64();
-            self.last_update = now;
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
 
-            // Add tokens based on bandwidth limit and elapsed time
-            self.tokens += (limit as f64) * elapsed;
-
-            // Cap tokens at 2x the bandwidth limit (allows small bursts)
-            let max_tokens = (limit as f64) * 2.0;
-            if self.tokens > max_tokens {
-                self.tokens = max_tokens;
+        // Check if we have a pending sleep (bandwidth throttling)
+        if let Some(ref mut sleep) = this.pending_sleep {
+            match sleep.as_mut().poll(cx) {
+                Poll::Ready(()) => {
+                    this.pending_sleep = None;
+                    // Refill tokens after sleep
+                    if let Some(limit) = this.bandwidth_limit {
+                        this.tokens = limit as f64;
+                        this.last_update = Instant::now();
+                    }
+                }
+                Poll::Pending => return Poll::Pending,
             }
         }
 
-        match Pin::new(&mut self.inner).poll_next(cx) {
+        // Refill token bucket based on elapsed time (for bandwidth throttling)
+        if let Some(limit) = this.bandwidth_limit {
+            let now = Instant::now();
+            let elapsed = now.duration_since(this.last_update).as_secs_f64();
+            this.last_update = now;
+
+            // Add tokens based on bandwidth limit and elapsed time
+            this.tokens += (limit as f64) * elapsed;
+
+            // Cap tokens at 2x the bandwidth limit (allows small bursts)
+            let max_tokens = (limit as f64) * 2.0;
+            if this.tokens > max_tokens {
+                this.tokens = max_tokens;
+            }
+        }
+
+        match Pin::new(&mut this.inner).poll_next(cx) {
             Poll::Ready(Some(Ok(bytes))) => {
-                let bytes_len = bytes.len() as u64;
-
-                // Apply bandwidth throttling if enabled
-                if let Some(limit) = self.bandwidth_limit {
-                    let required_tokens = bytes_len as f64;
-
-                    if self.tokens < required_tokens {
-                        // Not enough tokens, calculate sleep time
-                        let tokens_needed = required_tokens - self.tokens;
-                        let sleep_duration =
-                            Duration::from_secs_f64(tokens_needed / (limit as f64));
-
-                        // Wake up after sleep duration
-                        let waker = cx.waker().clone();
-                        tokio::spawn(async move {
-                            sleep(sleep_duration).await;
-                            waker.wake();
-                        });
-
-                        return Poll::Pending;
+                match this.process_item(bytes) {
+                    Some(result) => Poll::Ready(Some(result)),
+                    None => {
+                        // Throttling active, return Pending
+                        // The sleep will wake us up
+                        Poll::Pending
                     }
-
-                    // Consume tokens
-                    self.tokens -= required_tokens;
                 }
-
-                // Update progress
-                let new_total = self.bytes_sent.fetch_add(bytes_len, Ordering::Relaxed) + bytes_len;
-                self.progress_reporter
-                    .report_progress(new_total, self.total_bytes, &self.filename);
-
-                Poll::Ready(Some(Ok(bytes)))
             }
             Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e))),
             Poll::Ready(None) => Poll::Ready(None),
@@ -174,5 +208,38 @@ mod tests {
         assert_eq!(progress_updates[0], (100, 600));
         assert_eq!(progress_updates[1], (300, 600));
         assert_eq!(progress_updates[2], (600, 600));
+    }
+
+    #[tokio::test]
+    #[ignore = "Takes too long - tests actual throttling with 100KB/s limit"]
+    async fn test_bandwidth_throttling() {
+        use futures::StreamExt;
+        use std::time::Instant;
+
+        let reporter = Arc::new(TestReporter {
+            updates: Arc::new(std::sync::Mutex::new(Vec::new())),
+        });
+
+        // Create a 1MB chunk
+        let large_chunk = Bytes::from(vec![0u8; 1024 * 1024]);
+        let data = vec![Ok(large_chunk.clone()), Ok(large_chunk.clone())];
+        let stream = stream::iter(data);
+
+        let start = Instant::now();
+        let progress_stream = ProgressStream::new(
+            stream,
+            2 * 1024 * 1024,
+            reporter,
+            "test.dat".to_string(),
+            Some(100 * 1024), // 100 KB/s limit
+        );
+
+        let collected: Vec<_> = progress_stream.collect().await;
+        let elapsed = start.elapsed();
+
+        // With 100 KB/s limit and 2MB of data, should take ~20 seconds
+        // Just verify it completed and took some time
+        assert_eq!(collected.len(), 2);
+        assert!(elapsed.as_secs_f64() > 0.5); // Should have some throttling delay
     }
 }

@@ -9,7 +9,7 @@
 
 use anyhow::Result;
 use clap::Parser;
-use rust_yt_uploader::{YouTubeClient, init_logging};
+use rust_yt_uploader::{YouTubeClient, init_logging, validate_profile_name};
 use std::path::PathBuf;
 use tracing::info;
 
@@ -89,6 +89,11 @@ struct Cli {
     /// Filter subtitles by language code (e.g., 'en', 'zh', 'fr')
     #[arg(long)]
     language: Option<String>,
+
+    /// Profile name for OAuth (alphanumeric only)
+    /// Credentials: client_secret-{profile}.json, Token: youtube-oauth2-{profile}.json
+    #[arg(short, long, value_name = "PROFILE")]
+    profile: String,
 }
 
 /// Format videos as JSON
@@ -229,11 +234,15 @@ async fn main() -> Result<()> {
 
     info!("Starting YouTube video lister");
 
+    // Validate profile name
+    validate_profile_name(&cli.profile)?;
+    info!("Using profile: {}", cli.profile);
+
     // Parse output format
     let format: OutputFormat = cli.format.parse()?;
 
-    // Initialize YouTube client
-    let uploader = YouTubeClient::new().await?;
+    // Initialize YouTube client with profile
+    let uploader = YouTubeClient::new(&cli.profile).await?;
 
     // Handle subtitle listing
     if cli.list_subtitles {

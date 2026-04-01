@@ -130,7 +130,7 @@ Update `Cargo.toml` version before committing; pre-commit hook validates changes
 
 - ❌ Never: `cargo clean` (breaks build cache)
 - ❌ Never: Run binaries from `target/` directly (use `cargo run --bin`)
-- ❌ Never: Commit `client_secret.json`, `youtube-oauth2.json`
+- ❌ Never: Commit `client_secret-{profile}.json`, `youtube-oauth2-{profile}.json`
 - ✅ Always: Use `cargo test` before committing
 - ✅ Always: Run `cargo fmt` on modified files
 - ✅ Always: Test both sequential and concurrent upload modes if modifying `YouTubeClient`

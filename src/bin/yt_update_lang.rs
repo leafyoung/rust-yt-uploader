@@ -8,7 +8,7 @@
 
 use anyhow::Result;
 use clap::Parser;
-use rust_yt_uploader::{YouTubeClient, init_logging};
+use rust_yt_uploader::{YouTubeClient, init_logging, validate_profile_name};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tracing::info;
@@ -44,6 +44,11 @@ struct Cli {
     /// Only update videos that have no language set (not even empty)
     #[arg(long)]
     only_empty: bool,
+
+    /// Profile name for OAuth (alphanumeric only)
+    /// Credentials: client_secret-{profile}.json, Token: youtube-oauth2-{profile}.json
+    #[arg(short, long, value_name = "PROFILE")]
+    profile: String,
 }
 
 #[tokio::main]
@@ -53,8 +58,12 @@ async fn main() -> Result<()> {
 
     info!("Starting YouTube video language updater");
 
-    // Initialize YouTube client
-    let uploader = YouTubeClient::new().await?;
+    // Validate profile name
+    validate_profile_name(&cli.profile)?;
+    info!("Using profile: {}", cli.profile);
+
+    // Initialize YouTube client with profile
+    let uploader = YouTubeClient::new(&cli.profile).await?;
 
     info!("Fetching all public videos from your channel");
 

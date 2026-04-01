@@ -1,8 +1,10 @@
-use rust_yt_uploader::{init_logging, youtube_client::YouTubeClient};
+use anyhow::Result;
+use clap::Parser;
+use rust_yt_uploader::{init_logging, validate_profile_name, youtube_client::YouTubeClient};
 use serde::{Deserialize, Serialize};
-use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::PathBuf;
+use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct VideoInfo {
@@ -11,28 +13,53 @@ struct VideoInfo {
     guessed_date: String,
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    init_logging();
-    // Get JSON file path from command line argument
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        eprintln!("Usage: {} <json_file_path>", args[0]);
-        std::process::exit(1);
-    }
+/// YouTube video recording date updater CLI
+#[derive(Parser)]
+#[command(name = "yt-update-date")]
+#[command(about = "Update recording dates for YouTube videos from a JSON file")]
+#[command(long_about = r#"
+Update recording dates for YouTube videos from a JSON file.
 
-    let json_file = &args[1];
-    if !Path::new(json_file).exists() {
-        eprintln!("Error: File not found: {}", json_file);
-        std::process::exit(1);
+The JSON file should contain an array of VideoInfo objects with:
+- id: YouTube video ID
+- title: Video title
+- guessed_date: Date in YYYY-MM-DD format
+
+Example JSON format:
+[
+  {"id": "abc123", "title": "Video 1", "guessed_date": "2024-01-15"},
+  {"id": "def456", "title": "Video 2", "guessed_date": "2024-01-16"}
+]
+"#)]
+struct Cli {
+    /// Path to JSON file containing video information
+    json_file: PathBuf,
+
+    /// Profile name for OAuth (alphanumeric only)
+    /// Credentials: client_secret-{profile}.json, Token: youtube-oauth2-{profile}.json
+    #[arg(short, long, value_name = "PROFILE")]
+    profile: String,
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    init_logging();
+    let cli = Cli::parse();
+
+    // Validate profile name
+    validate_profile_name(&cli.profile)?;
+    info!("Using profile: {}", cli.profile);
+
+    if !cli.json_file.exists() {
+        anyhow::bail!("File not found: {}", cli.json_file.display());
     }
 
     // Read JSON file
-    let json_content = fs::read_to_string(json_file)?;
+    let json_content = fs::read_to_string(&cli.json_file)?;
     let videos: Vec<VideoInfo> = serde_json::from_str(&json_content)?;
 
-    // Initialize YouTube client
-    let client = YouTubeClient::new().await?;
+    // Initialize YouTube client with profile
+    let client = YouTubeClient::new(&cli.profile).await?;
 
     println!("Processing {} videos...\n", videos.len());
 
@@ -64,10 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn update_video_date(
-    client: &YouTubeClient,
-    video: &VideoInfo,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn update_video_date(client: &YouTubeClient, video: &VideoInfo) -> Result<()> {
     // Parse guessed_date from "YYYY-MM-DD" to YouTube format "YYYY-MM-DDTHH:MM:SS.000Z"
     let youtube_date_format = format!("{}T00:00:00.000Z", video.guessed_date);
 

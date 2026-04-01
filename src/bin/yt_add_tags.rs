@@ -1,8 +1,9 @@
 use anyhow::Result;
 use clap::Parser;
-use rust_yt_uploader::{YouTubeClient, init_logging};
+use rust_yt_uploader::{YouTubeClient, init_logging, validate_profile_name};
 use std::fs;
 use std::path::Path;
+use tracing::info;
 
 /// YouTube video tags updater CLI
 #[derive(Parser)]
@@ -33,12 +34,21 @@ struct Cli {
 
     /// Path to text file containing tags (separated by comma or semicolon)
     tags_file: String,
+
+    /// Profile name for OAuth (alphanumeric only)
+    /// Credentials: client_secret-{profile}.json, Token: youtube-oauth2-{profile}.json
+    #[arg(short, long, value_name = "PROFILE")]
+    profile: String,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     init_logging();
     let cli = Cli::parse();
+
+    // Validate profile name
+    validate_profile_name(&cli.profile)?;
+    info!("Using profile: {}", cli.profile);
 
     let tags_path = Path::new(&cli.tags_file);
     if !tags_path.exists() {
@@ -64,7 +74,7 @@ async fn main() -> Result<()> {
     println!("Updating video: {}", cli.video_id);
     println!();
 
-    let client = YouTubeClient::new().await?;
+    let client = YouTubeClient::new(&cli.profile).await?;
 
     client.update_video_tags(&cli.video_id, &tags).await?;
 

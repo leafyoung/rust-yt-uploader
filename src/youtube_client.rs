@@ -11,7 +11,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::path::Path;
 use std::sync::Arc;
-use tempfile::NamedTempFile;
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 
@@ -21,8 +20,8 @@ use crate::progress_stream::ProgressStream;
 use crate::retry::retry_with_backoff;
 use crate::video_process::merge_videos_with_ffmpeg;
 use crate::youtube::{
-    build_youtube_base_url, build_youtube_direct_upload_url, default_credentials_path,
-    default_token_path, default_youtube_scopes, types,
+    build_youtube_base_url, build_youtube_direct_upload_url, credentials_path_for_profile,
+    default_youtube_scopes, token_path_for_profile, types,
 };
 use reqwest::RequestBuilder;
 use validator::Validate;
@@ -123,10 +122,18 @@ pub struct YouTubeClient {
 }
 
 impl YouTubeClient {
-    /// Create a new YouTube uploader with default authentication paths
-    pub async fn new() -> Result<Self> {
-        let credentials_path = default_credentials_path();
-        let token_path = default_token_path();
+    /// Create a new YouTube uploader with a specific profile
+    ///
+    /// # Arguments
+    /// * `profile` - Profile name (alphanumeric only).
+    ///   Credentials will be loaded from `client_secret-{profile}.json`
+    ///   Token will be saved to/loaded from `youtube-oauth2-{profile}.json`
+    ///
+    /// # Errors
+    /// * Returns error if profile name contains invalid characters
+    pub async fn new(profile: &str) -> Result<Self> {
+        let credentials_path = credentials_path_for_profile(profile)?;
+        let token_path = token_path_for_profile(profile)?;
         Self::with_credentials_path(credentials_path, token_path).await
     }
 
@@ -153,12 +160,19 @@ impl YouTubeClient {
         })
     }
 
-    /// Create a new YouTube uploader with custom progress reporter
-    pub async fn with_progress_reporter<P: AsRef<Path>>(
-        credentials_path: P,
-        token_path: P,
+    /// Create a new YouTube uploader with profile and custom progress reporter
+    ///
+    /// # Arguments
+    /// * `profile` - Profile name (alphanumeric only).
+    ///   Credentials will be loaded from `client_secret-{profile}.json`
+    ///   Token will be saved to/loaded from `youtube-oauth2-{profile}.json`
+    /// * `progress_reporter` - Custom progress reporter implementation
+    pub async fn with_progress_reporter(
+        profile: &str,
         progress_reporter: Arc<dyn ProgressReporter>,
     ) -> Result<Self> {
+        let credentials_path = credentials_path_for_profile(profile)?;
+        let token_path = token_path_for_profile(profile)?;
         let scopes = default_youtube_scopes();
 
         let client = GoogleOAuth::new(
@@ -309,17 +323,24 @@ impl YouTubeClient {
         use tokio::fs::File;
         use tokio_util::io::ReaderStream;
 
+        // Open file with optimized buffer size for large video uploads
         let file = File::open(&file_path).await?;
-        let stream = ReaderStream::new(file);
 
-        const BANDWIDTH_LIMIT: u64 = 100 * 1024 * 1024;
+        // Use 1MB buffer for optimal throughput with large video files
+        // This reduces syscalls and improves I/O efficiency
+        const UPLOAD_BUFFER_SIZE: usize = 1024 * 1024; // 1MB
+        let stream = ReaderStream::with_capacity(file, UPLOAD_BUFFER_SIZE);
+
+        // Disable bandwidth limiting by default for maximum throughput
+        // Bandwidth limit only needed if explicitly requested
+        const BANDWIDTH_LIMIT: Option<u64> = None;
 
         let progress_stream = ProgressStream::new(
             stream,
             file_size,
             self.progress_reporter.clone(),
             file_path.to_string_lossy().to_string(),
-            Some(BANDWIDTH_LIMIT),
+            BANDWIDTH_LIMIT,
         );
 
         let form = reqwest::multipart::Form::new()
@@ -1483,6 +1504,7 @@ impl YouTubeClient {
 pub async fn upload_individual_sequential(
     config: IndividualConfigRoot,
     _show_progress: bool,
+    profile: &str,
 ) -> Result<()> {
     // Validate configuration
     config
@@ -1494,7 +1516,7 @@ pub async fn upload_individual_sequential(
         config.videos.len()
     );
 
-    let uploader = YouTubeClient::new()
+    let uploader = YouTubeClient::new(profile)
         .await
         .map_err(|err| anyhow!("Failed to initialize YouTubeUploader: {}", err))?;
 
@@ -1527,7 +1549,11 @@ pub async fn upload_individual_sequential(
 }
 
 /// Upload videos using batch schema format (sequential).
-pub async fn upload_batch_sequential(config: BatchConfigRoot, show_progress: bool) -> Result<()> {
+pub async fn upload_batch_sequential(
+    config: BatchConfigRoot,
+    show_progress: bool,
+    profile: &str,
+) -> Result<()> {
     // Validate configuration
     config
         .validate()
@@ -1555,9 +1581,11 @@ pub async fn upload_batch_sequential(config: BatchConfigRoot, show_progress: boo
                 .and_then(|ext| ext.to_str())
                 .unwrap_or("MTS");
             let suffix = format!(".{}", extension);
-            let temp_file = NamedTempFile::with_suffix(&suffix)?;
 
-            merge_videos_with_ffmpeg(file_paths, temp_file.path())?;
+            // Use fast temp file creation that prefers /dev/shm
+            let temp_file = crate::video_process::create_fast_temp_file(&suffix)?;
+
+            merge_videos_with_ffmpeg(file_paths, temp_file.path()).await?;
 
             (
                 temp_file.path().to_string_lossy().to_string(),
@@ -1589,15 +1617,11 @@ pub async fn upload_batch_sequential(config: BatchConfigRoot, show_progress: boo
             let file_size = metadata.len();
 
             let progress_reporter = Arc::new(ProgressBarReporter::new(&full_title, file_size));
-            YouTubeClient::with_progress_reporter(
-                default_credentials_path(),
-                default_token_path(),
-                progress_reporter,
-            )
-            .await
-            .map_err(|err| anyhow!("Failed to initialize YouTubeUploader: {}", err))?
+            YouTubeClient::with_progress_reporter(profile, progress_reporter)
+                .await
+                .map_err(|err| anyhow!("Failed to initialize YouTubeUploader: {}", err))?
         } else {
-            YouTubeClient::new()
+            YouTubeClient::new(profile)
                 .await
                 .map_err(|err| anyhow!("Failed to initialize YouTubeUploader: {}", err))?
         };
@@ -1623,6 +1647,7 @@ pub async fn upload_batch_concurrent(
     config: BatchConfigRoot,
     max_concurrent: usize,
     _show_progress: bool,
+    profile: &str,
 ) -> Result<Vec<String>> {
     // Validate configuration
     config
@@ -1637,7 +1662,7 @@ pub async fn upload_batch_concurrent(
         max_concurrent
     );
 
-    let uploader = YouTubeClient::new()
+    let uploader = YouTubeClient::new(profile)
         .await
         .map_err(|err| anyhow!("Failed to initialize YouTubeUploader: {}", err))?;
     let semaphore = Semaphore::new(max_concurrent);
@@ -1689,9 +1714,10 @@ pub async fn upload_batch_concurrent(
                         .and_then(|ext| ext.to_str())
                         .unwrap_or("MTS");
                     let suffix = format!(".{}", extension);
-                    let temp_file = NamedTempFile::with_suffix(&suffix)?;
+                    // Use fast temp file creation that prefers /dev/shm
+                    let temp_file = crate::video_process::create_fast_temp_file(&suffix)?;
 
-                    merge_videos_with_ffmpeg(&file_paths, temp_file.path())?;
+                    merge_videos_with_ffmpeg(&file_paths, temp_file.path()).await?;
 
                     (
                         temp_file.path().to_string_lossy().to_string(),

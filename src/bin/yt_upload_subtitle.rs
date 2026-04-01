@@ -4,7 +4,7 @@
 
 use anyhow::Result;
 use clap::Parser;
-use rust_yt_uploader::{YouTubeClient, init_logging};
+use rust_yt_uploader::{YouTubeClient, init_logging, validate_profile_name};
 use std::path::PathBuf;
 use tracing::info;
 
@@ -38,6 +38,11 @@ struct Cli {
     /// Optional name for the caption track (defaults to language code)
     #[arg(long)]
     name: Option<String>,
+
+    /// Profile name for OAuth (alphanumeric only)
+    /// Credentials: client_secret-{profile}.json, Token: youtube-oauth2-{profile}.json
+    #[arg(short, long, value_name = "PROFILE")]
+    profile: String,
 }
 
 #[tokio::main]
@@ -46,11 +51,16 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     info!("Starting YouTube subtitle uploader");
+
+    // Validate profile name
+    validate_profile_name(&cli.profile)?;
+    info!("Using profile: {}", cli.profile);
+
     info!("Video ID: {}", cli.video_id);
     info!("SRT file: {}", cli.srt_file.display());
     info!("Language: {}", cli.language);
 
-    let uploader = YouTubeClient::new().await?;
+    let uploader = YouTubeClient::new(&cli.profile).await?;
 
     let caption_id = uploader
         .upload_caption(

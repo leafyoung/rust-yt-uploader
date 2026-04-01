@@ -1,13 +1,21 @@
 use anyhow::Result;
 use reqwest::{Client, RequestBuilder};
 use std::path::Path;
+use std::sync::Arc;
+use std::time::Duration;
 
 use super::oauth::OAuthFlow;
+
+/// Connection pool settings for optimal throughput
+const POOL_IDLE_TIMEOUT: Duration = Duration::from_secs(90);
+const POOL_MAX_IDLE: usize = 32;
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// YouTube API client with OAuth 2.0 authentication using yup-oauth2
 #[derive(Clone)]
 pub struct GoogleOAuth {
-    http_client: Client,
+    http_client: Arc<Client>,
     access_token: String,
     base_url: String,
 }
@@ -39,19 +47,27 @@ impl GoogleOAuth {
             .auth(client_secrets_path, Some(token_file_path), &scopes)
             .await?;
 
+        // Create optimized HTTP client with connection pooling
+        let http_client = Arc::new(
+            Client::builder()
+                .pool_idle_timeout(POOL_IDLE_TIMEOUT)
+                .pool_max_idle_per_host(POOL_MAX_IDLE)
+                .timeout(REQUEST_TIMEOUT)
+                .connect_timeout(CONNECT_TIMEOUT)
+                .tcp_keepalive(Duration::from_secs(60))
+                .tcp_nodelay(true)
+                .build()?,
+        );
+
         Ok(Self {
-            http_client: Client::new(),
+            http_client,
             access_token: credentials.access_token,
             base_url,
         })
     }
 
     /// Create an authenticated request builder with Authorization header
-    async fn authenticated_request(
-        &self,
-        method: reqwest::Method,
-        url: &str,
-    ) -> Result<RequestBuilder> {
+    fn authenticated_request(&self, method: reqwest::Method, url: &str) -> Result<RequestBuilder> {
         let mut request = self.http_client.request(method, url);
         request = request.header("Authorization", format!("Bearer {}", self.access_token));
 
@@ -61,31 +77,34 @@ impl GoogleOAuth {
     /// Create a GET request to the YouTube API
     pub async fn get(&self, endpoint: &str) -> Result<RequestBuilder> {
         let url = format!("{}/{}", self.base_url, endpoint.trim_start_matches('/'));
-        self.authenticated_request(reqwest::Method::GET, &url).await
+        self.authenticated_request(reqwest::Method::GET, &url)
     }
 
     /// Create a POST request to the YouTube API
     pub async fn post(&self, endpoint: &str) -> Result<RequestBuilder> {
         let url = format!("{}/{}", self.base_url, endpoint.trim_start_matches('/'));
         self.authenticated_request(reqwest::Method::POST, &url)
-            .await
     }
 
     /// Create a PUT request to the YouTube API
     pub async fn put(&self, endpoint: &str) -> Result<RequestBuilder> {
         let url = format!("{}/{}", self.base_url, endpoint.trim_start_matches('/'));
-        self.authenticated_request(reqwest::Method::PUT, &url).await
+        self.authenticated_request(reqwest::Method::PUT, &url)
     }
 
     /// Create a DELETE request to the YouTube API
     pub async fn delete(&self, endpoint: &str) -> Result<RequestBuilder> {
         let url = format!("{}/{}", self.base_url, endpoint.trim_start_matches('/'));
         self.authenticated_request(reqwest::Method::DELETE, &url)
-            .await
     }
 
     /// Create a generic authenticated request
     pub async fn request(&self, method: reqwest::Method, url: &str) -> Result<RequestBuilder> {
-        self.authenticated_request(method, url).await
+        self.authenticated_request(method, url)
+    }
+
+    /// Get a clone of the underlying HTTP client for advanced use cases
+    pub fn http_client(&self) -> Arc<Client> {
+        self.http_client.clone()
     }
 }
