@@ -8,9 +8,6 @@ on:
 
 env:
     CARGO_TERM_COLOR: always
-    # Disable mold linker for CI (not available on GitHub Actions runners)
-    CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: ""
-    RUSTFLAGS: ""
 
 jobs:
     test:
@@ -22,6 +19,9 @@ jobs:
 
         steps:
             - uses: actions/checkout@v4
+
+            - name: Setup mold linker
+              uses: rui314/setup-mold@v1
 
             - name: Install Rust
               uses: dtolnay/rust-toolchain@master
@@ -49,6 +49,9 @@ jobs:
 
         steps:
             - uses: actions/checkout@v4
+
+            - name: Setup mold linker
+              uses: rui314/setup-mold@v1
 
             - name: Install Rust
               uses: dtolnay/rust-toolchain@master
