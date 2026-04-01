@@ -2,6 +2,7 @@
 name = "rust-yt-uploader"
 version = "0.2.16"
 edition = "2024"
+rust-version = "1.85"
 authors = ["Yang Ye <yy@runchee.com>"]
 description = "High-performance YouTube video uploader in Rust with OAuth 2.0, concurrent uploads, and comprehensive validation"
 license = "MIT"
@@ -86,7 +87,7 @@ reqwest = { version = "0.13.2", default-features = false, features = [
 yup-oauth2 = { version = "12.1.2", optional = true }
 
 # CLI
-clap = { version = "4.5.60", features = ["derive"] }
+clap = { version = "4.6.0", features = ["derive"] }
 
 # Serialization
 serde = { version = "1.0.228", features = ["derive"] }
@@ -98,7 +99,7 @@ anyhow = "1.0.102"
 
 # Logging
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
 # Validation
 validator = { version = "0.20.0", features = ["derive"] }
@@ -109,7 +110,7 @@ rand = "0.10.0"
 futures = "0.3.32"
 url = "2.5.8"
 shellexpand = "3.1.2"
-sha2 = "0.10.9"
+sha2 = "0.11.0"
 base64 = "0.22.1"
 urlencoding = "2.1.3"
 open = "5.3.3"
