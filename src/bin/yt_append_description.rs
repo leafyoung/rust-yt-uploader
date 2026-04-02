@@ -70,7 +70,9 @@ async fn main() -> Result<()> {
 
     // Need at least 2 args: video_id and content_file
     if cli.args.len() < 2 {
-        anyhow::bail!("Usage: yt-append-description [OPTIONS] -p <PROFILE> <video_id> [<video_id>...] <content_file.txt>");
+        anyhow::bail!(
+            "Usage: yt-append-description [OPTIONS] -p <PROFILE> <video_id> [<video_id>...] <content_file.txt>"
+        );
     }
 
     // Last argument is the content file
@@ -98,7 +100,11 @@ async fn main() -> Result<()> {
     }
 
     println!("Reading content from: {}", content_file);
-    println!("Processing {} video(s): {}", video_ids.len(), video_ids.join(", "));
+    println!(
+        "Processing {} video(s): {}",
+        video_ids.len(),
+        video_ids.join(", ")
+    );
     if cli.force {
         println!("Force mode: skipping duplicate check");
     }
@@ -144,22 +150,20 @@ async fn main() -> Result<()> {
     for (i, result) in results.iter().enumerate() {
         let video_id = &video_ids[i];
         match result {
-            Ok(Ok(video_result)) => {
-                match video_result.status {
-                    VideoStatus::Success => {
-                        success_count += 1;
-                        println!("✓ {} - Description updated successfully", video_id);
-                    }
-                    VideoStatus::Skipped(ref reason) => {
-                        skipped_count += 1;
-                        println!("⊘ {} - Skipped: {}", video_id, reason);
-                    }
-                    VideoStatus::Error(ref e) => {
-                        error_count += 1;
-                        println!("✗ {} - Error: {}", video_id, e);
-                    }
+            Ok(Ok(video_result)) => match video_result.status {
+                VideoStatus::Success => {
+                    success_count += 1;
+                    println!("✓ {} - Description updated successfully", video_id);
                 }
-            }
+                VideoStatus::Skipped(ref reason) => {
+                    skipped_count += 1;
+                    println!("⊘ {} - Skipped: {}", video_id, reason);
+                }
+                VideoStatus::Error(ref e) => {
+                    error_count += 1;
+                    println!("✗ {} - Error: {}", video_id, e);
+                }
+            },
             Ok(Err(e)) => {
                 error_count += 1;
                 println!("✗ {} - Error: {}", video_id, e);
@@ -182,7 +186,10 @@ async fn main() -> Result<()> {
     }
     println!("  Total time: {:.2}s", duration.as_secs_f64());
     if success_count + skipped_count + error_count > 0 {
-        println!("  Average per video: {:.2}s", duration.as_secs_f64() / video_ids.len() as f64);
+        println!(
+            "  Average per video: {:.2}s",
+            duration.as_secs_f64() / video_ids.len() as f64
+        );
     }
 
     Ok(())
@@ -196,11 +203,16 @@ async fn process_video(
 ) -> Result<VideoResult> {
     // Check if content already exists in the description (unless force mode)
     if !force {
-        match client.description_contains(video_id, additional_content).await {
+        match client
+            .description_contains(video_id, additional_content)
+            .await
+        {
             Ok(true) => {
                 return Ok(VideoResult {
                     video_id: video_id.to_string(),
-                    status: VideoStatus::Skipped("Content already exists in description".to_string()),
+                    status: VideoStatus::Skipped(
+                        "Content already exists in description".to_string(),
+                    ),
                 });
             }
             Ok(false) => {
@@ -216,18 +228,17 @@ async fn process_video(
     }
 
     // Update the description
-    match client.update_video_description(video_id, additional_content).await {
-        Ok(()) => {
-            Ok(VideoResult {
-                video_id: video_id.to_string(),
-                status: VideoStatus::Success,
-            })
-        }
-        Err(e) => {
-            Ok(VideoResult {
-                video_id: video_id.to_string(),
-                status: VideoStatus::Error(format!("Failed to update description: {}", e)),
-            })
-        }
+    match client
+        .update_video_description(video_id, additional_content)
+        .await
+    {
+        Ok(()) => Ok(VideoResult {
+            video_id: video_id.to_string(),
+            status: VideoStatus::Success,
+        }),
+        Err(e) => Ok(VideoResult {
+            video_id: video_id.to_string(),
+            status: VideoStatus::Error(format!("Failed to update description: {}", e)),
+        }),
     }
 }

@@ -58,7 +58,9 @@ async fn main() -> Result<()> {
 
     // Need at least 2 args: video_id and tags_file
     if cli.args.len() < 2 {
-        anyhow::bail!("Usage: yt-add-tags [OPTIONS] -p <PROFILE> <video_id> [<video_id>...] <tags_file.txt>");
+        anyhow::bail!(
+            "Usage: yt-add-tags [OPTIONS] -p <PROFILE> <video_id> [<video_id>...] <tags_file.txt>"
+        );
     }
 
     // Last argument is the tags file
@@ -86,7 +88,11 @@ async fn main() -> Result<()> {
 
     println!("Reading tags from: {}", tags_file);
     println!("Tags to add: {}", tags.join(";"));
-    println!("Processing {} video(s): {}", video_ids.len(), video_ids.join(", "));
+    println!(
+        "Processing {} video(s): {}",
+        video_ids.len(),
+        video_ids.join(", ")
+    );
     println!();
 
     // Create shared client and semaphore for concurrency
@@ -137,7 +143,10 @@ async fn main() -> Result<()> {
         println!("✗ Failed: {} video(s)", error_count);
     }
     println!("  Total time: {:.2}s", duration.as_secs_f64());
-    println!("  Average per video: {:.2}s", duration.as_secs_f64() / (success_count + error_count) as f64);
+    println!(
+        "  Average per video: {:.2}s",
+        duration.as_secs_f64() / (success_count + error_count) as f64
+    );
 
     Ok(())
 }

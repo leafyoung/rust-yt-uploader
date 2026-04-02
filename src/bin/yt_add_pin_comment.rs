@@ -78,7 +78,9 @@ async fn main() -> Result<()> {
 
     // Need at least 2 args: video_id and comment_file
     if cli.args.len() < 2 {
-        anyhow::bail!("Usage: yt-add-pin-comment [OPTIONS] -p <PROFILE> <video_id> [<video_id>...] <comment_file.txt>");
+        anyhow::bail!(
+            "Usage: yt-add-pin-comment [OPTIONS] -p <PROFILE> <video_id> [<video_id>...] <comment_file.txt>"
+        );
     }
 
     // Last argument is the comment file
@@ -106,7 +108,11 @@ async fn main() -> Result<()> {
     }
 
     println!("Reading comment from: {}", comment_file);
-    println!("Processing {} video(s): {}", video_ids.len(), video_ids.join(", "));
+    println!(
+        "Processing {} video(s): {}",
+        video_ids.len(),
+        video_ids.join(", ")
+    );
     if cli.pin {
         println!("Comments will be pinned (featured)");
     }
@@ -146,7 +152,8 @@ async fn main() -> Result<()> {
                 pin,
                 skip_if_pinned,
                 force,
-            ).await
+            )
+            .await
         });
         tasks.push(task);
     }
@@ -164,25 +171,23 @@ async fn main() -> Result<()> {
     for (i, result) in results.iter().enumerate() {
         let video_id = &video_ids[i];
         match result {
-            Ok(Ok(video_result)) => {
-                match video_result.status {
-                    VideoStatus::Success => {
-                        success_count += 1;
-                        println!("✓ {} - Comment posted successfully", video_id);
-                        if let Some(ref comment_id) = video_result.comment_id {
-                            println!("  Comment ID: {}", comment_id);
-                        }
-                    }
-                    VideoStatus::Skipped(ref reason) => {
-                        skipped_count += 1;
-                        println!("⊘ {} - Skipped: {}", video_id, reason);
-                    }
-                    VideoStatus::Error(ref e) => {
-                        error_count += 1;
-                        println!("✗ {} - Error: {}", video_id, e);
+            Ok(Ok(video_result)) => match video_result.status {
+                VideoStatus::Success => {
+                    success_count += 1;
+                    println!("✓ {} - Comment posted successfully", video_id);
+                    if let Some(ref comment_id) = video_result.comment_id {
+                        println!("  Comment ID: {}", comment_id);
                     }
                 }
-            }
+                VideoStatus::Skipped(ref reason) => {
+                    skipped_count += 1;
+                    println!("⊘ {} - Skipped: {}", video_id, reason);
+                }
+                VideoStatus::Error(ref e) => {
+                    error_count += 1;
+                    println!("✗ {} - Error: {}", video_id, e);
+                }
+            },
             Ok(Err(e)) => {
                 error_count += 1;
                 println!("✗ {} - Error: {}", video_id, e);
@@ -205,7 +210,10 @@ async fn main() -> Result<()> {
     }
     println!("  Total time: {:.2}s", duration.as_secs_f64());
     if success_count > 0 {
-        println!("  Average per video: {:.2}s", duration.as_secs_f64() / video_ids.len() as f64);
+        println!(
+            "  Average per video: {:.2}s",
+            duration.as_secs_f64() / video_ids.len() as f64
+        );
     }
 
     Ok(())
@@ -242,7 +250,10 @@ async fn process_video(
                 } else {
                     return Ok(VideoResult {
                         video_id: video_id.to_string(),
-                        status: VideoStatus::Skipped(format!("Could not detect pinned comment: {}", e)),
+                        status: VideoStatus::Skipped(format!(
+                            "Could not detect pinned comment: {}",
+                            e
+                        )),
                         comment_id: None,
                     });
                 }
@@ -276,13 +287,11 @@ async fn process_video(
         Ok(comment_id) => {
             if pin {
                 match client.pin_comment(&comment_id).await {
-                    Ok(()) => {
-                        Ok(VideoResult {
-                            video_id: video_id.to_string(),
-                            status: VideoStatus::Success,
-                            comment_id: Some(comment_id),
-                        })
-                    }
+                    Ok(()) => Ok(VideoResult {
+                        video_id: video_id.to_string(),
+                        status: VideoStatus::Success,
+                        comment_id: Some(comment_id),
+                    }),
                     Err(_e) => {
                         // Comment posted but pinning failed
                         Ok(VideoResult {
@@ -300,12 +309,10 @@ async fn process_video(
                 })
             }
         }
-        Err(e) => {
-            Ok(VideoResult {
-                video_id: video_id.to_string(),
-                status: VideoStatus::Error(format!("Failed to post comment: {}", e)),
-                comment_id: None,
-            })
-        }
+        Err(e) => Ok(VideoResult {
+            video_id: video_id.to_string(),
+            status: VideoStatus::Error(format!("Failed to post comment: {}", e)),
+            comment_id: None,
+        }),
     }
 }
