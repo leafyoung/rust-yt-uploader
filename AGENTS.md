@@ -88,8 +88,23 @@ cargo test --lib                     # Library tests only
 
 All commits run: `cargo fmt` → `cargo clippy` → `cargo test` → trailing whitespace checks
 
-**To bypass** (never recommended): `git commit --no-verify`
-**To fix formatting failures**: Run `cargo fmt` then re-stage files
+### ⚠️ CRITICAL: Never use `--no-verify`
+
+**❌ NEVER use `git commit --no-verify`** - This bypasses all pre-commit checks and will likely cause CI failures.
+
+If you used `--no-verify` and CI fails:
+1. Fix the issues (usually formatting: run `cargo fmt`)
+2. Re-stage files: `git add .`
+3. Commit **without** `--no-verify`: `git commit -m "fix: ..."`
+4. Push and verify CI passes
+
+### Common Pre-commit Failures
+
+| Failure | Cause | Fix |
+|---------|-------|-----|
+| `cargo fmt` | Code formatting | Run `cargo fmt` then re-stage |
+| `cargo clippy` | Lint warnings | Fix warnings or run `cargo clippy --fix` |
+| `cargo test` | Test failures | Fix failing tests |
 
 ### Post-Commit CI Verification Checklist
 
