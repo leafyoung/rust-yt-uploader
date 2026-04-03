@@ -192,6 +192,11 @@ async fn main() -> Result<()> {
         );
     }
 
+    // Exit with error code 1 if any video failed
+    if error_count > 0 {
+        anyhow::bail!("{} video(s) failed to update", error_count);
+    }
+
     Ok(())
 }
 

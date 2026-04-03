@@ -1333,7 +1333,7 @@ dependencies = [
 
 [[package]]
 name = "rust-yt-uploader"
-version = "0.2.16"
+version = "0.2.17"
 dependencies = [
  "anyhow",
  "base64",
