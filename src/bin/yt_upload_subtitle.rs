@@ -19,6 +19,11 @@ This tool uploads subtitle files to your YouTube videos, supporting:
 - SRT format subtitles
 - Custom language codes (e.g., "en", "zh", "fr")
 - Optional custom names for caption tracks
+- Optional overwrite mode for existing matching caption tracks
+
+By default, the tool checks for an existing caption track with the same language
+and name before uploading, and exits with an error if one exists. Use
+--overwrite to delete the existing matching track before uploading.
 
 The video must be owned by the authenticated user.
 "#)]
@@ -38,6 +43,10 @@ struct Cli {
     /// Optional name for the caption track (defaults to language code)
     #[arg(long)]
     name: Option<String>,
+
+    /// Delete an existing caption track with the same language and name before uploading
+    #[arg(long)]
+    overwrite: bool,
 
     /// Profile name for OAuth (alphanumeric only)
     /// Credentials: client_secret-{profile}.json, Token: youtube-oauth2-{profile}.json
@@ -61,6 +70,37 @@ async fn main() -> Result<()> {
     info!("Language: {}", cli.language);
 
     let uploader = YouTubeClient::new(&cli.profile).await?;
+    let caption_name = cli.name.as_deref().unwrap_or(&cli.language);
+
+    let existing_captions = uploader.list_video_captions(&cli.video_id).await?;
+    let matching_captions: Vec<_> = existing_captions
+        .into_iter()
+        .filter(|caption| {
+            caption.language == cli.language
+                && caption.name.as_deref().unwrap_or("") == caption_name
+        })
+        .collect();
+
+    if !matching_captions.is_empty() && !cli.overwrite {
+        anyhow::bail!(
+            "Subtitle already exists for video {} with language '{}' and name '{}'. Use --overwrite to delete the existing matching track before uploading.",
+            cli.video_id,
+            cli.language,
+            caption_name
+        );
+    }
+
+    if cli.overwrite {
+        for caption in &matching_captions {
+            println!(
+                "Deleting existing subtitle track: id={}, language={}, name={}",
+                caption.id,
+                caption.language,
+                caption.name.as_deref().unwrap_or("")
+            );
+            uploader.delete_caption(&caption.id).await?;
+        }
+    }
 
     let caption_id = uploader
         .upload_caption(

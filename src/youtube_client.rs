@@ -20,8 +20,8 @@ use crate::progress_stream::ProgressStream;
 use crate::retry::retry_with_backoff;
 use crate::video_process::merge_videos_with_ffmpeg;
 use crate::youtube::{
-    build_youtube_base_url, build_youtube_direct_upload_url, credentials_path_for_profile,
-    default_youtube_scopes, token_path_for_profile, types,
+    build_youtube_base_url, build_youtube_direct_upload_url, default_youtube_scopes,
+    resolve_credentials_path_for_profile, token_path_for_profile, types,
 };
 use reqwest::RequestBuilder;
 use validator::Validate;
@@ -132,7 +132,7 @@ impl YouTubeClient {
     /// # Errors
     /// * Returns error if profile name contains invalid characters
     pub async fn new(profile: &str) -> Result<Self> {
-        let credentials_path = credentials_path_for_profile(profile)?;
+        let credentials_path = resolve_credentials_path_for_profile(profile)?;
         let token_path = token_path_for_profile(profile)?;
         Self::with_credentials_path(credentials_path, token_path).await
     }
@@ -171,7 +171,7 @@ impl YouTubeClient {
         profile: &str,
         progress_reporter: Arc<dyn ProgressReporter>,
     ) -> Result<Self> {
-        let credentials_path = credentials_path_for_profile(profile)?;
+        let credentials_path = resolve_credentials_path_for_profile(profile)?;
         let token_path = token_path_for_profile(profile)?;
         let scopes = default_youtube_scopes();
 
@@ -1080,6 +1080,37 @@ impl YouTubeClient {
 
         info!("Found {} caption(s) for video {}", captions.len(), video_id);
         Ok(captions)
+    }
+
+    /// Delete a caption/subtitle track by caption ID.
+    ///
+    /// # Arguments
+    /// * `caption_id` - The YouTube caption track ID to delete
+    ///
+    /// # API Endpoint
+    /// DELETE <https://www.googleapis.com/youtube/v3/captions?id={caption_id}>
+    pub async fn delete_caption(&self, caption_id: &str) -> Result<()> {
+        info!("Deleting caption track: {}", caption_id);
+
+        let response = self
+            .client
+            .delete(&format!("captions?id={}", caption_id))
+            .await?
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "Failed to delete caption with status {}: {}",
+                status,
+                text
+            ));
+        }
+
+        info!("Successfully deleted caption track: {}", caption_id);
+        Ok(())
     }
 
     /// List captions for all videos in the user's channel.

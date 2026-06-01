@@ -21,7 +21,8 @@ pub use models::{
 pub use video_process::merge_videos_with_ffmpeg;
 pub use youtube::{
     build_youtube_base_url, build_youtube_direct_upload_url, credentials_path_for_profile,
-    default_youtube_scopes, token_path_for_profile, validate_profile_name,
+    default_youtube_scopes, resolve_credentials_path_for_profile, token_path_for_profile,
+    validate_profile_name,
 };
 pub use youtube_client::{
     CaptionDetails, NoProgress, ProgressBarReporter, ProgressReporter, VideoDetails, YouTubeClient,

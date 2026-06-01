@@ -143,9 +143,16 @@ impl OAuthFlow {
         token_file_path: Option<impl AsRef<std::path::Path>>,
         scopes: &[&str],
     ) -> Result<Credentials> {
-        let secret = yup_oauth2::read_application_secret(client_secrets_path.as_ref())
+        let secrets_path = client_secrets_path.as_ref();
+        let secret = yup_oauth2::read_application_secret(secrets_path)
             .await
-            .expect("Wrong client_secret.json");
+            .map_err(|e| {
+                anyhow!(
+                    "Client secrets file not found or invalid: {}. OAuth challenge cannot start without this Google OAuth client secrets file: {}",
+                    secrets_path.display(),
+                    e
+                )
+            })?;
 
         let token_uri = secret.token_uri.clone();
 
@@ -163,7 +170,7 @@ impl OAuthFlow {
         let secrets_path = client_secrets_path.as_ref();
         if !secrets_path.exists() {
             return Err(anyhow!(
-                "Client secrets file not found: {}",
+                "No OAuth client secrets file found at {}. Download a client_secret JSON file from Google Cloud Console and place it in the current directory.",
                 secrets_path.display()
             ));
         }

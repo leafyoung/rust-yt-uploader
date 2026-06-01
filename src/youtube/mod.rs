@@ -67,6 +67,72 @@ pub fn credentials_path_for_profile(profile: &str) -> anyhow::Result<std::path::
     )))
 }
 
+/// Resolve an existing OAuth client secrets file for a profile.
+///
+/// The OAuth client secret identifies the Google Cloud Console application,
+/// not a particular user. It can be reused across profiles. The token file
+/// (`youtube-oauth2-{profile}.json`) is what distinguishes profiles.
+///
+/// Resolution order:
+/// 1. `client_secret-{profile}.json`
+/// 2. `client_secret.json`
+/// 3. The only `client_secret-*.json` file in the current directory
+///
+/// When the profile-specific client_secret is missing but another one exists,
+/// this function returns the existing one so the OAuth challenge can launch
+/// and produce a new `youtube-oauth2-{profile}.json` token.
+///
+/// # Arguments
+/// * `profile` - Profile name (required, alphanumeric only)
+///
+/// # Returns
+/// * PathBuf to an existing client secrets file
+///
+/// # Errors
+/// * Returns error if no client secrets file exists or multiple fallback
+///   files make the choice ambiguous.
+pub fn resolve_credentials_path_for_profile(profile: &str) -> anyhow::Result<std::path::PathBuf> {
+    let profile_path = credentials_path_for_profile(profile)?;
+    if profile_path.exists() {
+        return Ok(profile_path);
+    }
+
+    let default_path = std::path::PathBuf::from("client_secret.json");
+    if default_path.exists() {
+        return Ok(default_path);
+    }
+
+    let mut fallback_paths: Vec<std::path::PathBuf> = std::fs::read_dir(".")?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("client_secret-") && name.ends_with(".json"))
+        })
+        .collect();
+    fallback_paths.sort();
+
+    match fallback_paths.len() {
+        0 => anyhow::bail!(
+            "No OAuth client secrets file found. Expected {} or client_secret.json. Download one from Google Cloud Console and try again.",
+            profile_path.display()
+        ),
+        1 => Ok(fallback_paths.remove(0)),
+        _ => anyhow::bail!(
+            "Client secrets file {} not found and multiple {} files exist ({}). Copy or symlink the intended one to {}.",
+            profile_path.display(),
+            fallback_paths.len(),
+            fallback_paths
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", "),
+            profile_path.display()
+        ),
+    }
+}
+
 /// Validate profile name - only alphanumeric characters allowed
 ///
 /// # Arguments
