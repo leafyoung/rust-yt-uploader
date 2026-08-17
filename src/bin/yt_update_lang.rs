@@ -129,7 +129,7 @@ async fn main() -> Result<()> {
             println!(
                 "{}. [{}] {} (lang: {} → zh, audio: {} → zh-Hans)",
                 idx + 1,
-                &video.id,
+                video.id,
                 video.title,
                 current_lang,
                 current_audio

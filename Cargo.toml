@@ -1,6 +1,6 @@
 [package]
 name = "rust-yt-uploader"
-version = "0.2.17"
+version = "0.2.18"
 edition = "2024"
 rust-version = "1.89"
 authors = ["Yang Ye <yy@runchee.com>"]
@@ -55,6 +55,10 @@ path = "src/bin/yt_add_tags.rs"
 [[bin]]
 name = "yt-add-pin-comment"
 path = "src/bin/yt_add_pin_comment.rs"
+
+[[bin]]
+name = "yt-set-description"
+path = "src/bin/yt_set_description.rs"
 
 [features]
 default = []

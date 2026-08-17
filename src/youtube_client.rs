@@ -912,6 +912,59 @@ impl YouTubeClient {
         Ok(())
     }
 
+    /// Replace (overwrite) a video's description entirely.
+    /// Unlike `update_video_description` (which appends), this sets the
+    /// description to exactly `new_description`. Used to repair duplicated /
+    /// corrupted descriptions by rebuilding from canonical source files.
+    pub async fn set_video_description(&self, video_id: &str, new_description: &str) -> Result<()> {
+        info!("Setting (overwriting) description for video {}", video_id);
+
+        let endpoint = format!("videos?part=snippet&id={}", video_id);
+
+        let video_response: types::VideoListResponse = self
+            .execute_and_parse(self.client.get(&endpoint).await?, "fetch video details")
+            .await?;
+
+        if video_response.items.is_empty() {
+            return Err(anyhow!("Video {} not found", video_id));
+        }
+
+        let mut video_item = video_response.items[0].clone();
+
+        if let Some(snippet) = video_item
+            .get_mut("snippet")
+            .and_then(|s| s.as_object_mut())
+        {
+            snippet.insert("description".to_string(), json!(new_description));
+        }
+
+        if let Some(obj) = video_item.as_object_mut() {
+            obj.remove("kind");
+            obj.remove("etag");
+        }
+
+        let response = self
+            .client
+            .put("videos?part=snippet")
+            .await?
+            .json(&video_item)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "Failed to update video with status {}: {}",
+                status,
+                text
+            ));
+        }
+
+        info!("Successfully set video description: {}", video_id);
+        Ok(())
+    }
+
     /// Get the current description of a video.
     ///
     /// # Arguments
