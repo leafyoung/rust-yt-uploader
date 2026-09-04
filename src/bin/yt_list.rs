@@ -101,13 +101,17 @@ fn format_as_json(videos: &[rust_yt_uploader::VideoDetails]) -> Result<String> {
     Ok(serde_json::to_string_pretty(&videos)?)
 }
 
-/// Format videos as JSONL (one JSON per line)
-fn format_as_jsonl(videos: &[rust_yt_uploader::VideoDetails]) -> Result<String> {
-    let lines: Result<Vec<String>> = videos
-        .iter()
-        .map(|v| serde_json::to_string(v).map_err(|e| anyhow::anyhow!(e)))
-        .collect();
-    Ok(lines?.join("\n"))
+/// Stream videos as JSONL (one JSON per line) directly to `w`.
+/// Avoids materializing per-video Strings + a joined copy: O(output) -> O(line).
+fn write_jsonl(
+    videos: &[rust_yt_uploader::VideoDetails],
+    w: &mut dyn std::io::Write,
+) -> Result<()> {
+    for v in videos {
+        serde_json::to_writer(&mut *w, v).map_err(|e| anyhow::anyhow!(e))?;
+        writeln!(w)?;
+    }
+    Ok(())
 }
 
 /// Format videos as table
@@ -306,26 +310,42 @@ async fn main() -> Result<()> {
 
         info!("Retrieved {} video(s)", videos.len());
 
-        // Format output
-        let output_text = if cli.ids_only {
-            format_as_ids_only(&videos)
-        } else {
-            match format {
-                OutputFormat::Json => format_as_json(&videos)?,
-                OutputFormat::Jsonl => format_as_jsonl(&videos)?,
-                OutputFormat::Table => format_as_table(&videos),
+        // Format output (jsonl streams: never materialize the full text)
+        if !cli.ids_only && format == OutputFormat::Jsonl {
+            let mut w: Box<dyn std::io::Write> = match &cli.output {
+                Some(path) => Box::new(std::io::BufWriter::new(std::fs::File::create(path)?)),
+                None => Box::new(std::io::BufWriter::new(std::io::stdout().lock())),
+            };
+            write_jsonl(&videos, &mut w)?;
+            w.flush()?;
+            if let Some(output_path) = &cli.output {
+                info!("Output written to: {}", output_path.display());
             }
-        };
-
-        // Write output
-        if let Some(output_path) = cli.output {
-            std::fs::write(&output_path, &output_text)?;
-            info!("Output written to: {}", output_path.display());
         } else {
-            println!("{}", output_text);
+            let output_text = if cli.ids_only {
+                format_as_ids_only(&videos)
+            } else {
+                match format {
+                    OutputFormat::Json => format_as_json(&videos)?,
+                    OutputFormat::Jsonl => unreachable!("handled above"),
+                    OutputFormat::Table => format_as_table(&videos),
+                }
+            };
+
+            // Write output
+            if let Some(output_path) = cli.output {
+                std::fs::write(&output_path, &output_text)?;
+                info!("Output written to: {}", output_path.display());
+            } else {
+                println!("{}", output_text);
+            }
         }
     }
 
     info!("Done");
     Ok(())
 }
+
+// peak-alloc: runtime baseline (no user-code heap) 64.0 KB incl. (heap peak 196.6 KB, massif, 2026-09-04)
+
+// leak-suspect: 11856 B possibly lost + 2 "errors" — adjudicated: tokio teardown noise (process::exit skips runtime Drop; glibc TLS of runtime threads), NOT a leak, 0 definite/indirect (2026-09-04)

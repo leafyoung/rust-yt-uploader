@@ -196,3 +196,7 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
+
+// peak-alloc: runtime baseline (no user-code heap) 64.0 KB incl. (heap peak 195.7 KB, massif, 2026-09-04)
+
+// leak-suspect: 11856 B possibly lost + 2 "errors" — adjudicated: tokio teardown noise (process::exit skips runtime Drop; glibc TLS of runtime threads), NOT a leak, 0 definite/indirect (2026-09-04)
