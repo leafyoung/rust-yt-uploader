@@ -248,6 +248,6 @@ async fn process_video(
     }
 }
 
-// peak-alloc: runtime baseline (no user-code heap) 64.0 KB incl. (heap peak 199.3 KB, massif, 2026-09-04)
+// peak-alloc: runtime baseline (no user-code heap) 64.0 KB incl. (heap peak 195.6 KB, massif, 2026-09-04)
 
 // leak-suspect: 11856 B possibly lost + 2 "errors" — adjudicated: tokio teardown noise (process::exit skips runtime Drop; glibc TLS of runtime threads), NOT a leak, 0 definite/indirect (2026-09-04)
