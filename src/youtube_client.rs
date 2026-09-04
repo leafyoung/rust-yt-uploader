@@ -6,6 +6,7 @@
 
 use anyhow::{Result, anyhow};
 use futures::future::try_join_all;
+use futures::stream::{self, Stream, StreamExt};
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -609,51 +610,94 @@ impl YouTubeClient {
     /// # API Endpoint
     /// GET <https://www.googleapis.com/youtube/v3/search?part=snippet&forMine=true&type=video&maxResults=50&pageToken={pageToken}>
     /// GET <https://www.googleapis.com/youtube/v3/videos?part=snippet,status,recordingDetails&id={video_ids}>
+    /// Stream all videos from the user's channel page by page (50 per page).
+    ///
+    /// Each item is one page of full video details. Memory stays O(page)
+    /// instead of O(channel), so callers that process videos incrementally
+    /// never materialize the whole channel. Fetch errors surface as `Err`
+    /// items and terminate the stream.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use anyhow::Result;
+    /// # use futures::StreamExt;
+    /// # async fn example(client: &rust_yt_uploader::YouTubeClient) -> Result<()> {
+    /// let pages = client.video_pages();
+    /// futures::pin_mut!(pages);
+    /// while let Some(page) = pages.next().await {
+    ///     eprintln!("got {} videos", page?.len());
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn video_pages(&self) -> impl Stream<Item = Result<Vec<VideoDetails>>> + '_ {
+        stream::unfold(Some(None::<String>), move |state| async move {
+            let page_token = state?; // None => stream exhausted
+            match self.fetch_video_page(page_token).await {
+                Ok((page, next)) if !page.is_empty() => Some((Ok(page), Some(next))),
+                Ok(_) => None,                  // empty page = end of channel
+                Err(e) => Some((Err(e), None)), // yield the error, then terminate
+            }
+        })
+    }
+
+    /// Fetch one page of channel videos (search + per-video details).
+    /// Returns the page and the token for the next page, if any.
+    async fn fetch_video_page(
+        &self,
+        page_token: Option<String>,
+    ) -> Result<(Vec<VideoDetails>, Option<String>)> {
+        // Build the search endpoint with pagination
+        let mut endpoint =
+            String::from("search?part=snippet&forMine=true&type=video&maxResults=50");
+        if let Some(token) = &page_token {
+            endpoint.push_str(&format!("&pageToken={}", token));
+        }
+
+        let response = self.client.get(&endpoint).await?.send().await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "Failed to list videos with status {}: {}",
+                status,
+                text
+            ));
+        }
+
+        let search_response: types::SearchResponse = response.json().await?;
+
+        let video_ids: Vec<String> = search_response
+            .items
+            .iter()
+            .map(|item| item.id.video_id.clone())
+            .collect();
+
+        let video_details = self.fetch_video_details(&video_ids).await?;
+        Ok((video_details, search_response.next_page_token))
+    }
+
+    /// Fetch all videos from the user's channel.
+    ///
+    /// This method retrieves all videos from the authenticated user's channel
+    /// with their details including video ID, title, description, status, dates, etc.
+    ///
+    /// # Returns
+    /// * Result containing a vector of VideoDetails
+    ///
+    /// # API Endpoint
+    /// GET <https://www.googleapis.com/youtube/v3/search?part=snippet&forMine=true&type=video&maxResults=50&pageToken={pageToken}>
+    /// GET <https://www.googleapis.com/youtube/v3/videos?part=snippet,status,recordingDetails&id={video_ids}>
     pub async fn list_all_videos(&self) -> Result<Vec<VideoDetails>> {
         info!("Fetching all videos from user's channel");
 
         let mut all_videos = Vec::new();
-        let mut page_token = None;
-
-        loop {
-            // Build the search endpoint with pagination
-            let mut endpoint =
-                String::from("search?part=snippet&forMine=true&type=video&maxResults=50");
-            if let Some(token) = &page_token {
-                endpoint.push_str(&format!("&pageToken={}", token));
-            }
-
-            let response = self.client.get(&endpoint).await?.send().await?;
-
-            if !response.status().is_success() {
-                let status = response.status();
-                let text = response.text().await.unwrap_or_default();
-                return Err(anyhow!(
-                    "Failed to list videos with status {}: {}",
-                    status,
-                    text
-                ));
-            }
-
-            let search_response: types::SearchResponse = response.json().await?;
-
-            if search_response.items.is_empty() {
-                break;
-            }
-
-            let video_ids: Vec<String> = search_response
-                .items
-                .iter()
-                .map(|item| item.id.video_id.clone())
-                .collect();
-
-            let video_details = self.fetch_video_details(&video_ids).await?;
-            all_videos.extend(video_details);
-
-            page_token = search_response.next_page_token;
-            if page_token.is_none() {
-                break;
-            }
+        let pages = self.video_pages();
+        futures::pin_mut!(pages);
+        while let Some(page) = pages.next().await {
+            all_videos.extend(page?);
         }
 
         info!("Successfully fetched {} videos", all_videos.len());
@@ -1173,16 +1217,20 @@ impl YouTubeClient {
     pub async fn list_all_captions(&self) -> Result<Vec<(String, Vec<CaptionDetails>)>> {
         info!("Fetching all videos and their captions");
 
-        let videos = self.list_all_videos().await?;
         let mut video_captions = Vec::new();
-
-        for video in videos {
-            match self.list_video_captions(&video.id).await {
-                Ok(captions) => {
-                    video_captions.push((video.id, captions));
-                }
-                Err(e) => {
-                    warn!("Failed to fetch captions for video {}: {}", video.id, e);
+        // Stream pages: only video IDs are needed, so the full VideoDetails
+        // (with descriptions) never materializes channel-wide.
+        let pages = self.video_pages();
+        futures::pin_mut!(pages);
+        while let Some(page) = pages.next().await {
+            for video in page? {
+                match self.list_video_captions(&video.id).await {
+                    Ok(captions) => {
+                        video_captions.push((video.id, captions));
+                    }
+                    Err(e) => {
+                        warn!("Failed to fetch captions for video {}: {}", video.id, e);
+                    }
                 }
             }
         }

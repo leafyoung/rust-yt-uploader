@@ -9,6 +9,7 @@
 
 use anyhow::Result;
 use clap::Parser;
+use futures::StreamExt;
 use rust_yt_uploader::{YouTubeClient, init_logging, validate_profile_name};
 use std::path::PathBuf;
 use tracing::info;
@@ -305,23 +306,32 @@ async fn main() -> Result<()> {
         // List videos
         info!("Fetching videos from your channel");
 
-        // Fetch all videos
-        let videos = uploader.list_all_videos().await?;
-
-        info!("Retrieved {} video(s)", videos.len());
-
-        // Format output (jsonl streams: never materialize the full text)
+        // jsonl streams page-by-page: never materializes the whole channel
         if !cli.ids_only && format == OutputFormat::Jsonl {
             let mut w: Box<dyn std::io::Write> = match &cli.output {
                 Some(path) => Box::new(std::io::BufWriter::new(std::fs::File::create(path)?)),
                 None => Box::new(std::io::BufWriter::new(std::io::stdout().lock())),
             };
-            write_jsonl(&videos, &mut w)?;
+            let mut count = 0usize;
+            let pages = uploader.video_pages();
+            futures::pin_mut!(pages);
+            while let Some(page) = pages.next().await {
+                let page = page?;
+                count += page.len();
+                write_jsonl(&page, &mut w)?;
+            }
             w.flush()?;
+            info!("Retrieved {} video(s)", count);
             if let Some(output_path) = &cli.output {
                 info!("Output written to: {}", output_path.display());
             }
         } else {
+            // Fetch all videos
+            let videos = uploader.list_all_videos().await?;
+
+            info!("Retrieved {} video(s)", videos.len());
+
+            // Format output
             let output_text = if cli.ids_only {
                 format_as_ids_only(&videos)
             } else {
