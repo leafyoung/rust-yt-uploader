@@ -208,3 +208,65 @@ gh run watch --repo leafyoung/rust-yt-uploader --exit-status
 # 4. If failed, diagnose and fix
 gh run view --log-failed --repo leafyoung/rust-yt-uploader
 ```
+
+## Runtime Audit & Live Test Cases
+
+Adjudicated results live in `review_reports/` (untracked): `IMPROVEMENT_REPORT.md` (read this
+first), `demo_runs.csv` (per-command measurements), `demo_logs/` (raw output).
+
+### Harness sweep (in box2 container)
+
+```bash
+podman exec box2 bash -lc 'cd /var/home/yangye/devv/dongli/uploader/rust-yt-uploader && python3 measure_rust.py'           # RSS + wall, debug/release
+podman exec box2 bash -lc 'cd /var/home/yangye/devv/dongli/uploader/rust-yt-uploader && python3 measure_rust.py --massif'  # heap lines
+podman exec box2 bash -lc 'cd /var/home/yangye/devv/dongli/uploader/rust-yt-uploader && python3 measure_rust.py --leaks'   # memcheck
+```
+
+- Binaries exit 2 on no-args (expected clap usage error) — that is the only runnable path without
+  credentials. `RUN_FAIL` in CSVs means this, not a defect.
+- Resumable-skip trap: stale CSVs make `--massif`/`--leaks` silently skip all units. Delete the
+  CSV first to force a fresh sweep.
+- Adjudication standing rule: "possibly lost 11,856 B + 2 errors" = tokio teardown noise
+  (process::exit skips runtime Drop), NOT a leak. Real-path (normal return) runs are 0/0/0.
+
+### Live demo test cases (measured via `python3 measure_cmd.py <label> <cmd...>`, host)
+
+Safe to run repeatedly — all are read-only or idempotent by design:
+
+```bash
+BIN=$HOME/.cache/rust-build/release
+$BIN/yt-list --format jsonl --profile dongli
+$BIN/yt-update-lang --dry-run --profile dongli
+ID=ZrTvGlp87jo  # any video
+# idempotent description PUT: write the video's CURRENT description back (full GET+PUT path)
+$BIN/yt-set-description $ID <file-with-current-description> --profile dongli
+# idempotent date write: JSON [{"id","title","guessed_date"}] with the EXISTING recordingDate
+$BIN/yt-update-date <json-file> --profile dongli
+```
+
+Single-shot (mutate or create resources — run at most once per invocation unless intended):
+
+```bash
+$BIN/yt-upload --file /var/home/yangye/devv/dongli/uploader/ups/2026/video_20260329_test.yaml --profile dongli
+$BIN/yt-upload --file <same.yaml> --async --concurrent 3 --profile dongli
+$BIN/yt-upload-subtitle --video-id $ID --srt-file <srt> --language zh --profile dongli
+$BIN/yt-append-description $ID <meta.txt> --profile dongli   # built-in dupe check
+$BIN/yt-add-tags $ID <tags.txt> --profile dongli
+$BIN/yt-add-pin-comment $ID <chapters.txt> --pin --profile dongli  # skips if already pinned
+```
+
+Safety properties: the test YAML has `test: true` (uploads then auto-deletes the private videos)
+and `privacyStatus: private`. Never run mutating commands under valgrind/TSan twice for
+measurement + detector separately — pick one (a second run would double-post).
+
+### Quotas and TSan
+
+- `yt-list` and `yt-update-lang` consume `search.list` quota: **100/day/project, resets midnight
+  PT**. rc=1 + quota JSON in output = quota exhausted, not a bug.
+- TSan on the concurrent path (`--async` upload) works in box2:
+  `rustup component add rust-src --toolchain nightly`, then build with
+  `CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-Zsanitizer=thread -C debuginfo=2"` +
+  `--target x86_64-unknown-linux-gnu` + `-Z build-std=std` (target-scoped flags + `--target` are
+  REQUIRED — plain `RUSTFLAGS` breaks build scripts with ABI-mismatch errors). Expect exit 66
+  with ~2 tokio-internal `ScheduledIo` warnings (loom-verified pattern, known TSan blind spot);
+  anything in `youtube_client.rs`/`progress_stream.rs` racing accesses would be a real finding.
