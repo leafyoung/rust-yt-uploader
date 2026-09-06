@@ -12,7 +12,8 @@ const POOL_MAX_IDLE: usize = 32;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// YouTube API client with OAuth 2.0 authentication (PKCE authorization-code flow)
+/// YouTube API client with OAuth 2.0 authentication (hand-rolled PKCE flow by default;
+/// yup-oauth2 via the `use-yup-oauth2` feature)
 #[derive(Clone)]
 pub struct GoogleOAuth {
     http_client: Arc<Client>,

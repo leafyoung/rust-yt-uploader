@@ -1,6 +1,7 @@
 //! Authentication module for YouTube API using OAuth 2.0.
 //!
-//! This module provides OAuth 2.0 authentication (a hand-rolled Rust equivalent of
+//! This module provides OAuth 2.0 authentication: a hand-rolled PKCE flow by default, or
+//! yup-oauth2 behind the `use-yup-oauth2` feature (Rust equivalent of
 //! Python's google-auth-oauthlib) with PKCE support. It handles:
 //! - Loading existing credentials from token files
 //! - Token validation (expiration, scopes)
