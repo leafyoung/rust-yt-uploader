@@ -235,7 +235,10 @@ Safe to run repeatedly — all are read-only or idempotent by design:
 
 ```bash
 BIN=$HOME/.cache/rust-build/release
-$BIN/yt-list --format jsonl --profile dongli
+# default: newest page only (1 search.list query), merged into the json snapshot by "id"
+$BIN/yt-list --output /tmp/snap.json --format json --profile dongli
+# full channel sweep (pages whole channel; costs one query per 50 videos): needs --full
+$BIN/yt-list --format jsonl --profile dongli --full
 $BIN/yt-update-lang --dry-run --profile dongli
 ID=ZrTvGlp87jo  # any video
 # idempotent description PUT: write the video's CURRENT description back (full GET+PUT path)
@@ -262,7 +265,9 @@ measurement + detector separately — pick one (a second run would double-post).
 ### Quotas and TSan
 
 - `yt-list` and `yt-update-lang` consume `search.list` quota: **100/day/project, resets midnight
-  PT**. rc=1 + quota JSON in output = quota exhausted, not a bug.
+  PT (08:00 UTC)**. rc=1 + quota JSON in output = quota exhausted, not a bug. Default `yt-list`
+  mode costs ONE query (page 1 + merge); `--full` costs one per 50 videos. Failed runs leave the
+  existing snapshot file untouched — safe to re-run after quota resets.
 - TSan on the concurrent path (`--async` upload) works in box2:
   `rustup component add rust-src --toolchain nightly`, then build with
   `CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-Zsanitizer=thread -C debuginfo=2"` +

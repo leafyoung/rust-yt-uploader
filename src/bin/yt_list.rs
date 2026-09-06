@@ -79,6 +79,10 @@ struct Cli {
     #[arg(long)]
     ids_only: bool,
 
+    /// Fetch the entire channel (default: newest page only, merged into the --output json file)
+    #[arg(long)]
+    full: bool,
+
     /// List available subtitles/captions for videos
     #[arg(long)]
     list_subtitles: bool,
@@ -100,6 +104,31 @@ struct Cli {
 /// Format videos as JSON
 fn format_as_json(videos: &[rust_yt_uploader::VideoDetails]) -> Result<String> {
     Ok(serde_json::to_string_pretty(&videos)?)
+}
+
+/// Merge fresh page entries into an existing JSON output file, overwriting by "id".
+/// Existing entries keep their position; new entries are appended (search returns
+/// newest first). A missing output file yields just the fresh entries; without an
+/// output file there is nothing to merge into.
+fn merge_with_existing_file(
+    fresh: &[rust_yt_uploader::VideoDetails],
+    output: Option<&std::path::Path>,
+) -> Result<Vec<rust_yt_uploader::VideoDetails>> {
+    let Some(path) = output else {
+        return Ok(fresh.to_vec());
+    };
+    let mut merged: Vec<rust_yt_uploader::VideoDetails> = if path.exists() {
+        serde_json::from_reader(std::fs::File::open(path)?)?
+    } else {
+        Vec::new()
+    };
+    for video in fresh {
+        match merged.iter_mut().find(|entry| entry.id == video.id) {
+            Some(slot) => *slot = video.clone(),
+            None => merged.push(video.clone()),
+        }
+    }
+    Ok(merged)
 }
 
 /// Stream videos as JSONL (one JSON per line) directly to `w`.
@@ -306,8 +335,8 @@ async fn main() -> Result<()> {
         // List videos
         info!("Fetching videos from your channel");
 
-        // jsonl streams page-by-page: never materializes the whole channel
-        if !cli.ids_only && format == OutputFormat::Jsonl {
+        // jsonl streams page-by-page: never materializes the whole channel (--full only)
+        if !cli.ids_only && format == OutputFormat::Jsonl && cli.full {
             let mut w: Box<dyn std::io::Write> = match &cli.output {
                 Some(path) => Box::new(std::io::BufWriter::new(std::fs::File::create(path)?)),
                 None => Box::new(std::io::BufWriter::new(std::io::stdout().lock())),
@@ -326,8 +355,13 @@ async fn main() -> Result<()> {
                 info!("Output written to: {}", output_path.display());
             }
         } else {
-            // Fetch all videos
-            let videos = uploader.list_all_videos().await?;
+            // Default mode fetches only the newest page (one search.list query);
+            // --full pages the entire channel against the small per-day search quota.
+            let mut videos = if cli.full {
+                uploader.list_all_videos().await?
+            } else {
+                uploader.list_first_page().await?
+            };
 
             info!("Retrieved {} video(s)", videos.len());
 
@@ -336,8 +370,17 @@ async fn main() -> Result<()> {
                 format_as_ids_only(&videos)
             } else {
                 match format {
-                    OutputFormat::Json => format_as_json(&videos)?,
-                    OutputFormat::Jsonl => unreachable!("handled above"),
+                    OutputFormat::Json => {
+                        // Incremental snapshot: merge the fresh page into the existing
+                        // output file, overwriting entries by "id".
+                        videos = merge_with_existing_file(&videos, cli.output.as_deref())?;
+                        format_as_json(&videos)?
+                    }
+                    OutputFormat::Jsonl => {
+                        let mut buf = Vec::new();
+                        write_jsonl(&videos, &mut buf)?;
+                        String::from_utf8(buf)?
+                    }
                     OutputFormat::Table => format_as_table(&videos),
                 }
             };
@@ -359,3 +402,44 @@ async fn main() -> Result<()> {
 // peak-alloc: runtime baseline (no user-code heap) 64.0 KB incl. (heap peak 198.9 KB, massif, 2026-09-04)
 
 // leak-suspect: 11856 B possibly lost + 2 "errors" — adjudicated: tokio teardown noise (process::exit skips runtime Drop; glibc TLS of runtime threads), NOT a leak, 0 definite/indirect (2026-09-04)
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn video(id: &str, title: &str) -> rust_yt_uploader::VideoDetails {
+        serde_json::from_value(serde_json::json!({
+            "id": id, "title": title, "description": "", "status": "public",
+            "upload_date": "2026-01-01T00:00:00Z", "categoryId": "22", "tags": []
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn merge_overwrites_by_id_and_appends_new() {
+        let dir = std::env::temp_dir().join("yt_list_merge_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("snap.json");
+        std::fs::write(
+            &path,
+            r#"[{"id":"a","title":"A old","description":"","status":"public","upload_date":"2026-01-01T00:00:00Z","categoryId":"22","tags":[]},{"id":"b","title":"B","description":"","status":"public","upload_date":"2026-01-01T00:00:00Z","categoryId":"22","tags":[]}]"#,
+        )
+        .unwrap();
+
+        let fresh = vec![video("b", "B new"), video("c", "C")];
+        let merged = merge_with_existing_file(&fresh, Some(&path)).unwrap();
+
+        let ids: Vec<&str> = merged.iter().map(|v| v.id.as_str()).collect();
+        assert_eq!(ids, ["a", "b", "c"], "existing order kept, new appended");
+        assert_eq!(merged[1].title, "B new", "existing entry overwritten by id");
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn merge_without_output_file_is_identity() {
+        let fresh = vec![video("a", "A")];
+        let merged = merge_with_existing_file(&fresh, None).unwrap();
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].id, "a");
+    }
+}

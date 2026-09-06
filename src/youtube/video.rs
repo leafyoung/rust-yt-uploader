@@ -42,6 +42,16 @@ impl YouTubeClient {
         Ok(())
     }
 
+    /// Fetch only the first page (up to 50 newest videos) of the channel.
+    ///
+    /// Costs a single `search.list` query instead of paging the whole channel,
+    /// preserving the small per-day search quota. Pair with output-file merging
+    /// in the caller for incremental snapshots (`yt-list` default mode).
+    pub async fn list_first_page(&self) -> Result<Vec<VideoDetails>> {
+        let (page, _) = self.fetch_video_page(None).await?;
+        Ok(page)
+    }
+
     /// Fetch all videos from the user's channel.
     ///
     /// This method retrieves all videos from the authenticated user's channel
