@@ -7,17 +7,12 @@ use base64::Engine;
 use rand::RngExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use serde_jsonlines::JsonLinesReader;
 use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tiny_http::{Response, Server};
 use tracing::info;
 use url::Url;
-
-#[cfg(feature = "use-yup-oauth2")]
-use yup_oauth2::{ApplicationSecret, InstalledFlowAuthenticator, InstalledFlowReturnMethod};
-
-#[cfg(not(feature = "use-yup-oauth2"))]
-use serde_jsonlines::JsonLinesReader;
 
 /// Macro to build URL-encoded form body from key-value pairs.
 ///
@@ -125,46 +120,11 @@ impl OAuthFlow {
         token_file_path: Option<impl AsRef<std::path::Path>>,
         scopes: &[&str],
     ) -> Result<Credentials> {
-        #[cfg(feature = "use-yup-oauth2")]
-        {
-            return self
-                .auth_with_yup_oauth2(client_secrets_path, token_file_path, scopes)
-                .await;
-        }
-
-        #[cfg(not(feature = "use-yup-oauth2"))]
-        {
-            self.auth_with_custom_oauth(client_secrets_path, token_file_path, scopes)
-                .await
-        }
-    }
-
-    #[cfg(feature = "use-yup-oauth2")]
-    async fn auth_with_yup_oauth2(
-        &self,
-        client_secrets_path: impl AsRef<std::path::Path>,
-        token_file_path: Option<impl AsRef<std::path::Path>>,
-        scopes: &[&str],
-    ) -> Result<Credentials> {
-        let secrets_path = client_secrets_path.as_ref();
-        let secret = yup_oauth2::read_application_secret(secrets_path)
-            .await
-            .map_err(|e| {
-                anyhow!(
-                    "Client secrets file not found or invalid: {}. OAuth challenge cannot start without this Google OAuth client secrets file: {}",
-                    secrets_path.display(),
-                    e
-                )
-            })?;
-
-        let token_uri = secret.token_uri.clone();
-
-        self.authenticate_with_retry(secret, token_uri, token_file_path, scopes)
+        self.authenticate(client_secrets_path, token_file_path, scopes)
             .await
     }
 
-    #[cfg(not(feature = "use-yup-oauth2"))]
-    async fn auth_with_custom_oauth(
+    async fn authenticate(
         &self,
         client_secrets_path: impl AsRef<std::path::Path>,
         token_file_path: Option<impl AsRef<std::path::Path>>,
@@ -230,7 +190,6 @@ impl OAuthFlow {
         Ok(result)
     }
 
-    #[cfg(not(feature = "use-yup-oauth2"))]
     fn parse_client_secrets(&self, json_str: &str) -> Result<ClientSecret> {
         serde_json::from_str(json_str)
             .or_else(|_| {
@@ -247,57 +206,6 @@ impl OAuthFlow {
                     e
                 )
             })
-    }
-
-    #[cfg(feature = "use-yup-oauth2")]
-    async fn authenticate_with_retry(
-        &self,
-        secret: ApplicationSecret,
-        token_uri: String,
-        token_file_path: Option<impl AsRef<std::path::Path>>,
-        scopes: &[&str],
-    ) -> Result<Credentials> {
-        let mut auth = InstalledFlowAuthenticator::builder(
-            secret.clone(),
-            InstalledFlowReturnMethod::HTTPRedirect,
-        );
-
-        if let Some(path) = &token_file_path {
-            auth = auth.persist_tokens_to_disk(path.as_ref().to_path_buf());
-        }
-
-        match auth.build().await {
-            Ok(auth) => match auth.token(scopes).await {
-                Ok(token) => Ok(Credentials {
-                    access_token: String::from(token.token().unwrap()),
-                    refresh_token: None, // yup-oauth2 does not expose refresh token directly
-                    token_uri,
-                    scopes: scopes.iter().map(|s| s.to_string()).collect(),
-                    expires_at: token
-                        .expiration_time()
-                        .map(|t| t.unix_timestamp())
-                        .unwrap_or(0),
-                }),
-                Err(e) => Err(anyhow!("Failed to create authenticator: {}", e)),
-            },
-            Err(e) => {
-                let error_msg = e.to_string();
-                if error_msg.contains("JSONToken") && token_file_path.is_some() {
-                    if let Some(path) = &token_file_path {
-                        std::fs::remove_file(path.as_ref())?;
-                    }
-                    return Box::pin(self.authenticate_with_retry(
-                        secret,
-                        token_uri,
-                        token_file_path,
-                        scopes,
-                    ))
-                    .await;
-                } else {
-                    Err(anyhow!("Failed to get token for scopes: {}", e))
-                }
-            }
-        }
     }
 
     /// Perform OAuth 2.0 authorization flow with local HTTP server callback.
@@ -589,7 +497,6 @@ impl OAuthFlow {
 mod tests {
     use super::*;
 
-    #[cfg(not(feature = "use-yup-oauth2"))]
     #[test]
     fn test_client_secret_parsing_fallback() {
         // Test regular JSON parsing

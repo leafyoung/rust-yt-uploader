@@ -1,6 +1,6 @@
 [package]
 name = "rust-yt-uploader"
-version = "0.2.24"
+version = "0.2.25"
 edition = "2024"
 rust-version = "1.89"
 authors = ["Yang Ye <yy@runchee.com>"]
@@ -62,8 +62,6 @@ path = "src/bin/yt_set_description.rs"
 
 [features]
 default = []
-# default = ["use-yup-oauth2"]
-use-yup-oauth2 = ["yup-oauth2"]
 
 [dependencies]
 # Async runtime - optimized for I/O and process management
@@ -88,7 +86,6 @@ reqwest = { version = "0.13.4", default-features = false, features = [
     "charset",
     "system-proxy",
 ] }
-yup-oauth2 = { version = "12.1.2", optional = true }
 
 # CLI
 clap = { version = "4.6.6", features = ["derive"] }
@@ -123,7 +120,6 @@ tempfile = "3.27.0"
 
 # File handling
 mime = "0.3.17"
-mime_guess = "2.0.5"
 serde-jsonlines = "0.7.0"
 tokio-util = { version = "0.7.19", features = ["io"] }
 

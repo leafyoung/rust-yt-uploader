@@ -4,11 +4,19 @@
 //! handling retriable HTTP errors and connection issues.
 
 use anyhow::Result;
+use rand::RngExt;
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{error, info, warn};
 
-use crate::models::RetryConfig;
+/// Default maximum retries after the initial attempt (legacy config-struct default).
+pub const DEFAULT_MAX_RETRIES: u32 = 10;
+/// Default base delay in milliseconds for the exponential backoff (legacy config-struct default).
+pub const DEFAULT_BASE_DELAY_MS: u64 = 1000;
+/// Upper bound (in seconds) on any single backoff sleep (legacy config-struct default).
+const MAX_SLEEP_SECS: f64 = 60.0;
+/// Exponential growth factor between retry attempts (legacy config-struct default).
+const EXPONENTIAL_BASE: u32 = 2;
 
 /// HTTP status codes that should trigger a retry
 pub const RETRIABLE_STATUS_CODES: &[u16] = &[500, 502, 503, 504];
@@ -40,11 +48,30 @@ pub fn is_retriable_error(error: &anyhow::Error) -> bool {
     false
 }
 
+/// Compute the backoff sleep for a retry attempt: jittered exponential growth
+/// (`rand() * base_delay * EXPONENTIAL_BASE^attempt`), capped at [`MAX_SLEEP_SECS`].
+///
+/// With the default parameters this reproduces the legacy config-struct math
+/// exactly (base 1.0s, exponential base 2, capped at 60s, sleep attempt is 1-based).
+fn backoff_sleep_secs(retry_attempt: u32, base_delay_ms: u64) -> f64 {
+    // f64 powi is exact for powers of two up to 2^53, matching the legacy
+    // integer pow for every realistic attempt count without overflow panics.
+    let exponential_sleep = (EXPONENTIAL_BASE as f64).powi(retry_attempt as i32);
+    let jittered =
+        rand::rng().random::<f64>() * (base_delay_ms as f64 / 1000.0) * exponential_sleep;
+    jittered.min(MAX_SLEEP_SECS)
+}
+
 /// Execute a function with retry logic using exponential backoff.
+///
+/// The operation runs up to `max_retries + 1` times (initial attempt plus
+/// retries). Only retriable errors (see [`is_retriable_error`]) are retried;
+/// non-retriable failures abort immediately.
 ///
 /// # Arguments
 /// * `operation` - The async operation to retry
-/// * `config` - Retry configuration
+/// * `max_retries` - Maximum retries after the initial attempt (11 total attempts with the default of 10)
+/// * `base_delay_ms` - Base delay in milliseconds; sleep grows exponentially from here with jitter, capped at 60s
 /// * `operation_name` - Name for logging purposes
 ///
 /// # Returns
@@ -56,7 +83,8 @@ pub fn is_retriable_error(error: &anyhow::Error) -> bool {
 /// * `Op` - Operation function type
 pub async fn retry_with_backoff<T, F, Op>(
     mut operation: Op,
-    config: &RetryConfig,
+    max_retries: u32,
+    base_delay_ms: u64,
     operation_name: &str,
 ) -> Result<T>
 where
@@ -65,7 +93,7 @@ where
 {
     let mut last_error = None;
 
-    for attempt in 0..=config.max_retries {
+    for attempt in 0..=max_retries {
         match operation().await {
             Ok(result) => {
                 if attempt > 0 {
@@ -81,7 +109,7 @@ where
                 last_error = Some(error);
                 let error_ref = last_error.as_ref().unwrap();
 
-                if attempt == config.max_retries {
+                if attempt == max_retries {
                     error!(
                         "Operation '{}' failed after {} attempts: {}",
                         operation_name,
@@ -99,12 +127,12 @@ where
                     break;
                 }
 
-                let sleep_duration = config.calculate_sleep_time(attempt + 1);
+                let sleep_duration = backoff_sleep_secs(attempt + 1, base_delay_ms);
                 warn!(
                     "Operation '{}' failed (attempt {}/{}): {}. Retrying in {:.2}s...",
                     operation_name,
                     attempt + 1,
-                    config.max_retries + 1,
+                    max_retries + 1,
                     error_ref,
                     sleep_duration
                 );
@@ -134,9 +162,31 @@ mod tests {
         assert!(!is_retriable_status(200));
     }
 
+    #[test]
+    fn test_default_retry_params_match_legacy_config() {
+        assert_eq!(DEFAULT_MAX_RETRIES, 10);
+        assert_eq!(DEFAULT_BASE_DELAY_MS, 1000);
+    }
+
+    #[test]
+    fn test_backoff_sleep_bounds() {
+        // Sleep must stay within [0, MAX_SLEEP_SECS] for every legacy attempt.
+        for attempt in 1..=DEFAULT_MAX_RETRIES {
+            let sleep_time = backoff_sleep_secs(attempt, DEFAULT_BASE_DELAY_MS);
+            assert!(sleep_time >= 0.0);
+            assert!(sleep_time <= MAX_SLEEP_SECS);
+        }
+    }
+
+    #[test]
+    fn test_backoff_sleep_caps_large_attempts() {
+        // Even tiny base delays with huge attempt numbers must be capped at 60s.
+        let sleep_time = backoff_sleep_secs(40, DEFAULT_BASE_DELAY_MS);
+        assert_eq!(sleep_time, MAX_SLEEP_SECS);
+    }
+
     #[tokio::test]
     async fn test_retry_success_on_first_attempt() {
-        let config = RetryConfig::default();
         let mut call_count = 0;
 
         let result = retry_with_backoff(
@@ -144,7 +194,8 @@ mod tests {
                 call_count += 1;
                 async { Ok::<i32, anyhow::Error>(42) }
             },
-            &config,
+            DEFAULT_MAX_RETRIES,
+            DEFAULT_BASE_DELAY_MS,
             "test_operation",
         )
         .await;
@@ -157,12 +208,6 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_retry_success_after_failures() {
-        let config = RetryConfig {
-            max_retries: 3,
-            base_sleep: 0.001, // Very short sleep for testing
-            max_sleep: 0.01,
-            exponential_base: 2,
-        };
         let mut call_count = 0;
 
         let result = retry_with_backoff(
@@ -176,7 +221,8 @@ mod tests {
                     }
                 }
             },
-            &config,
+            3,
+            1, // 1ms base delay: very short sleeps for testing
             "test_operation",
         )
         .await;
@@ -189,12 +235,6 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_retry_max_attempts_exceeded() {
-        let config = RetryConfig {
-            max_retries: 2,
-            base_sleep: 0.001,
-            max_sleep: 0.01,
-            exponential_base: 2,
-        };
         let mut call_count = 0;
 
         let result = retry_with_backoff(
@@ -202,7 +242,8 @@ mod tests {
                 call_count += 1;
                 async { Err::<i32, anyhow::Error>(anyhow!("Persistent failure")) }
             },
-            &config,
+            2,
+            1,
             "test_operation",
         )
         .await;

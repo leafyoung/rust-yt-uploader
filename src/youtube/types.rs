@@ -4,7 +4,54 @@
 //! former youtube_client.rs monolith
 //! to provide a single source of truth and eliminate duplication.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+
+// ============================================================================
+// App-facing video/caption models
+// ============================================================================
+
+/// Video details for listing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VideoDetails {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub status: String,
+    pub upload_date: String,
+    #[serde(rename = "categoryId")]
+    pub category_id: String,
+    pub tags: Vec<String>,
+    #[serde(rename = "defaultLanguage")]
+    pub default_language: Option<String>,
+    #[serde(rename = "defaultAudioLanguage")]
+    pub default_audio_language: Option<String>,
+    #[serde(rename = "recordingDate")]
+    pub recording_date: Option<String>,
+    pub duration: Option<String>,
+    pub caption: Option<String>,
+}
+
+/// Caption/subtitle details for a video
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CaptionDetails {
+    pub id: String,
+    #[serde(rename = "videoId")]
+    pub video_id: String,
+    pub language: String,
+    #[serde(rename = "isAutoSynced")]
+    pub is_auto_synced: Option<bool>,
+    #[serde(rename = "isCC")]
+    pub is_cc: Option<bool>,
+    #[serde(rename = "isLarge")]
+    pub is_large: Option<bool>,
+    #[serde(rename = "isDraft")]
+    pub is_draft: Option<bool>,
+    pub name: Option<String>,
+    #[serde(rename = "audioTrackType")]
+    pub audio_track_type: Option<String>,
+    #[serde(rename = "isEasyReader")]
+    pub is_easy_reader: Option<bool>,
+}
 
 // ============================================================================
 // Video Upload Response Types

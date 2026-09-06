@@ -11,24 +11,14 @@ pub mod retry;
 pub mod video_process;
 pub mod youtube;
 
-// Re-export commonly used types
-pub use google_oauth::GoogleOAuth;
-pub use models::{
-    BatchConfigRoot, CommonConfig, ConfigFormat, IndividualConfigRoot, PrivacyStatus, RetryConfig,
-    VideoCategory, VideoConfig, VideoUploadOptions,
-};
-pub use video_process::merge_videos_with_ffmpeg;
+// Re-exports consumed by the CLI binaries and external embedders.
+// Everything else stays accessible through its home module
+// (`models::`, `youtube::`, `google_oauth::`, `retry::`, `video_process::`).
+pub use models::{BatchConfigRoot, ConfigFormat, IndividualConfigRoot};
 pub use youtube::{
-    CaptionDetails, NoProgress, ProgressBarReporter, ProgressReporter, VideoDetails, YouTubeClient,
-    upload_batch_concurrent, upload_batch_sequential, upload_individual_sequential,
+    CaptionDetails, VideoDetails, YouTubeClient, upload_batch_concurrent, upload_batch_sequential,
+    upload_individual_sequential, validate_profile_name,
 };
-pub use youtube::{
-    build_youtube_base_url, build_youtube_direct_upload_url, credentials_path_for_profile,
-    default_youtube_scopes, resolve_credentials_path_for_profile, token_path_for_profile,
-    validate_profile_name,
-};
-
-pub use retry::retry_with_backoff;
 
 /// Initialize tracing/logging with default configuration.
 ///
@@ -41,7 +31,5 @@ pub fn init_logging() {
         )
         .with_target(false)
         .with_thread_ids(false)
-        .with_file(true)
-        .with_line_number(true)
         .init();
 }

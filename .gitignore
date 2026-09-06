@@ -53,3 +53,5 @@ tarpaulin-report.html
 # Temporary files
 *.tmp
 *.temp
+
+review_reports/*

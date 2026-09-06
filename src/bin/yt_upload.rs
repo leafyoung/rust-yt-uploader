@@ -41,10 +41,6 @@ struct Cli {
     #[arg(long, default_value = "3")]
     concurrent: usize,
 
-    /// Show progress bars during upload
-    #[arg(long, default_value_t = true)]
-    progress: bool,
-
     /// Profile name for OAuth (alphanumeric only)
     /// Credentials: client_secret-{profile}.json, Token: youtube-oauth2-{profile}.json
     #[arg(short, long, value_name = "PROFILE")]
@@ -106,7 +102,7 @@ async fn main() -> Result<()> {
             let config: IndividualConfigRoot = serde_yaml_ng::from_str(&config_content)
                 .map_err(|e| anyhow::anyhow!("Failed to parse individual config: {}", e))?;
 
-            upload_individual_sequential(config, cli.progress, &cli.profile).await?;
+            upload_individual_sequential(config, &cli.profile).await?;
         }
         ConfigFormat::Batch => {
             info!("Detected batch YAML schema format");
@@ -119,12 +115,11 @@ async fn main() -> Result<()> {
                     cli.concurrent
                 );
                 let video_ids =
-                    upload_batch_concurrent(config, cli.concurrent, cli.progress, &cli.profile)
-                        .await?;
+                    upload_batch_concurrent(config, cli.concurrent, &cli.profile).await?;
                 info!("All {} videos uploaded successfully", video_ids.len());
             } else {
                 info!("Using sequential upload mode");
-                upload_batch_sequential(config, cli.progress, &cli.profile).await?;
+                upload_batch_sequential(config, &cli.profile).await?;
             }
         }
     }

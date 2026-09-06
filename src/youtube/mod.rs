@@ -23,13 +23,12 @@ use anyhow::{Result, anyhow};
 use futures::stream::{self, Stream};
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::RequestBuilder;
-use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
 use url::Url;
 
 use crate::google_oauth::GoogleOAuth;
-use crate::models::RetryConfig;
+use crate::retry::{DEFAULT_BASE_DELAY_MS, DEFAULT_MAX_RETRIES};
 
 /// YouTube API service configuration
 pub const YOUTUBE_API_SERVICE_NAME: &str = "youtube";
@@ -246,53 +245,13 @@ impl ProgressReporter for ProgressBarReporter {
     }
 }
 
-/// Video details for listing
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VideoDetails {
-    pub id: String,
-    pub title: String,
-    pub description: String,
-    pub status: String,
-    pub upload_date: String,
-    #[serde(rename = "categoryId")]
-    pub category_id: String,
-    pub tags: Vec<String>,
-    #[serde(rename = "defaultLanguage")]
-    pub default_language: Option<String>,
-    #[serde(rename = "defaultAudioLanguage")]
-    pub default_audio_language: Option<String>,
-    #[serde(rename = "recordingDate")]
-    pub recording_date: Option<String>,
-    pub duration: Option<String>,
-    pub caption: Option<String>,
-}
-
-/// Caption/subtitle details for a video
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CaptionDetails {
-    pub id: String,
-    #[serde(rename = "videoId")]
-    pub video_id: String,
-    pub language: String,
-    #[serde(rename = "isAutoSynced")]
-    pub is_auto_synced: Option<bool>,
-    #[serde(rename = "isCC")]
-    pub is_cc: Option<bool>,
-    #[serde(rename = "isLarge")]
-    pub is_large: Option<bool>,
-    #[serde(rename = "isDraft")]
-    pub is_draft: Option<bool>,
-    pub name: Option<String>,
-    #[serde(rename = "audioTrackType")]
-    pub audio_track_type: Option<String>,
-    #[serde(rename = "isEasyReader")]
-    pub is_easy_reader: Option<bool>,
-}
-
 /// YouTube video uploader
 pub struct YouTubeClient {
     client: GoogleOAuth,
-    retry_config: RetryConfig,
+    /// Maximum retries after the initial attempt for retriable API operations.
+    max_retries: u32,
+    /// Base delay in milliseconds for the exponential backoff between retries.
+    base_delay_ms: u64,
     progress_reporter: Arc<dyn ProgressReporter>,
 }
 
@@ -326,11 +285,11 @@ impl YouTubeClient {
             build_youtube_base_url(),
         )
         .await?;
-        let retry_config = RetryConfig::default();
 
         Ok(Self {
             client,
-            retry_config,
+            max_retries: DEFAULT_MAX_RETRIES,
+            base_delay_ms: DEFAULT_BASE_DELAY_MS,
             progress_reporter: Arc::new(NoProgress),
         })
     }
@@ -357,11 +316,11 @@ impl YouTubeClient {
             build_youtube_base_url(),
         )
         .await?;
-        let retry_config = RetryConfig::default();
 
         Ok(Self {
             client,
-            retry_config,
+            max_retries: DEFAULT_MAX_RETRIES,
+            base_delay_ms: DEFAULT_BASE_DELAY_MS,
             progress_reporter,
         })
     }

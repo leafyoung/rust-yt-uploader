@@ -191,11 +191,8 @@ Example: `PL1234567890123456`
 #### yt-upload: Upload Videos
 
 ```bash
-# Sequential upload with profile (required)
+# Sequential upload (progress bars shown automatically; hidden on non-TTY output)
 yt-upload --file config.yaml --profile work
-
-# Sequential upload with progress bars
-yt-upload --file config.yaml --profile work --progress
 
 # Concurrent upload (3 concurrent by default)
 yt-upload --file config.yaml --profile work --async
@@ -398,4 +395,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## Acknowledgments
 
 - Built with the Tokio async runtime for high-performance I/O
-- Use yup_oauth2 as an alternative
+- Hand-rolled OAuth 2.0 with PKCE (tiny_http callback + local server)

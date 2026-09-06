@@ -41,7 +41,8 @@ impl YouTubeClient {
 
         let video_id = retry_with_backoff(
             || self.initialize_upload(options),
-            &self.retry_config,
+            self.max_retries,
+            self.base_delay_ms,
             "video_upload",
         )
         .await?;
@@ -50,7 +51,8 @@ impl YouTubeClient {
 
         let playlist_success = retry_with_backoff(
             || self.add_to_playlist(&video_id, &options.playlist_id),
-            &self.retry_config,
+            self.max_retries,
+            self.base_delay_ms,
             "playlist_addition",
         )
         .await;
@@ -200,10 +202,26 @@ impl YouTubeClient {
     }
 }
 
+/// Create a client wired to a per-video progress bar sized to the file being uploaded.
+///
+/// Indicatif hides progress bars automatically when output is not a TTY, so this is
+/// safe to use unconditionally.
+async fn new_client_with_progress_bar(
+    profile: &str,
+    title: &str,
+    file: &str,
+) -> Result<YouTubeClient> {
+    let expanded = shellexpand::tilde(file);
+    let metadata = tokio::fs::metadata(Path::new(expanded.as_ref())).await?;
+    let reporter = Arc::new(ProgressBarReporter::new(title, metadata.len()));
+    YouTubeClient::with_progress_reporter(profile, reporter)
+        .await
+        .map_err(|err| anyhow!("Failed to initialize YouTubeUploader: {}", err))
+}
+
 /// Upload videos using individual schema format (sequential).
 pub async fn upload_individual_sequential(
     config: IndividualConfigRoot,
-    _show_progress: bool,
     profile: &str,
 ) -> Result<()> {
     // Validate configuration
@@ -215,10 +233,6 @@ pub async fn upload_individual_sequential(
         "Processing {} video(s) using individual schema",
         config.videos.len()
     );
-
-    let uploader = YouTubeClient::new(profile)
-        .await
-        .map_err(|err| anyhow!("Failed to initialize YouTubeUploader: {}", err))?;
 
     for (idx, video) in config.videos.iter().enumerate() {
         info!("Processing video {}/{}", idx + 1, config.videos.len());
@@ -236,6 +250,9 @@ pub async fn upload_individual_sequential(
             recording_date: video.recording_date.clone(),
         };
 
+        // Per-video client with a progress bar sized to this file.
+        let uploader = new_client_with_progress_bar(profile, &video.title, &video.file).await?;
+
         match uploader.upload_video(&options, config.test).await {
             Ok(video_id) => info!("Successfully uploaded video: {}", video_id),
             Err(e) => {
@@ -249,11 +266,7 @@ pub async fn upload_individual_sequential(
 }
 
 /// Upload videos using batch schema format (sequential).
-pub async fn upload_batch_sequential(
-    config: BatchConfigRoot,
-    show_progress: bool,
-    profile: &str,
-) -> Result<()> {
+pub async fn upload_batch_sequential(config: BatchConfigRoot, profile: &str) -> Result<()> {
     // Validate configuration
     config
         .validate()
@@ -308,23 +321,7 @@ pub async fn upload_batch_sequential(
             recording_date: config.common.recording_date.clone(),
         };
 
-        // Create uploader with progress bar for this video if progress is enabled
-        let uploader = if show_progress {
-            // Get file size for progress bar
-            let file_path_expanded = shellexpand::tilde(&file_to_upload);
-            let file_path_obj = Path::new(file_path_expanded.as_ref());
-            let metadata = tokio::fs::metadata(&file_path_obj).await?;
-            let file_size = metadata.len();
-
-            let progress_reporter = Arc::new(ProgressBarReporter::new(&full_title, file_size));
-            YouTubeClient::with_progress_reporter(profile, progress_reporter)
-                .await
-                .map_err(|err| anyhow!("Failed to initialize YouTubeUploader: {}", err))?
-        } else {
-            YouTubeClient::new(profile)
-                .await
-                .map_err(|err| anyhow!("Failed to initialize YouTubeUploader: {}", err))?
-        };
+        let uploader = new_client_with_progress_bar(profile, &full_title, &file_to_upload).await?;
 
         match uploader.upload_video(&options, config.test).await {
             Ok(video_id) => {
@@ -346,7 +343,6 @@ pub async fn upload_batch_sequential(
 pub async fn upload_batch_concurrent(
     config: BatchConfigRoot,
     max_concurrent: usize,
-    _show_progress: bool,
     profile: &str,
 ) -> Result<Vec<String>> {
     // Validate configuration
@@ -362,9 +358,6 @@ pub async fn upload_batch_concurrent(
         max_concurrent
     );
 
-    let uploader = YouTubeClient::new(profile)
-        .await
-        .map_err(|err| anyhow!("Failed to initialize YouTubeUploader: {}", err))?;
     let semaphore = Semaphore::new(max_concurrent);
 
     let parsed_files = config.parse_files();
@@ -386,7 +379,6 @@ pub async fn upload_batch_concurrent(
         .zip(parsed_files.iter())
         .enumerate()
         .map(|(idx, (title, file_paths))| {
-            let uploader = &uploader;
             let semaphore = &semaphore;
             let title = title.clone();
             let file_paths = file_paths.clone();
@@ -426,6 +418,11 @@ pub async fn upload_batch_concurrent(
                 } else {
                     (file_paths[0].clone(), None)
                 };
+
+                // Per-video client + progress bar; create before `full_title`
+                // is moved into the upload options below.
+                let uploader =
+                    new_client_with_progress_bar(profile, &full_title, &file_to_upload).await?;
 
                 let options = VideoUploadOptions {
                     file: file_to_upload.clone(),

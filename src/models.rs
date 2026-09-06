@@ -4,7 +4,6 @@
 //! supporting both individual and batch YAML configuration formats.
 
 use anyhow::{Result, anyhow};
-use rand::RngExt;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -15,45 +14,6 @@ use validator::{Validate, ValidationError};
 pub enum ConfigFormat {
     Individual,
     Batch,
-}
-
-/// Configuration for retry behavior during uploads.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RetryConfig {
-    /// Maximum number of retry attempts
-    pub max_retries: u32,
-    /// Base sleep time in seconds
-    pub base_sleep: f64,
-    /// Maximum sleep time in seconds
-    pub max_sleep: f64,
-    /// Exponential backoff base
-    pub exponential_base: u32,
-}
-
-impl Default for RetryConfig {
-    fn default() -> Self {
-        Self {
-            max_retries: 10,
-            base_sleep: 1.0,
-            max_sleep: 60.0,
-            exponential_base: 2,
-        }
-    }
-}
-
-impl RetryConfig {
-    /// Calculate sleep time using exponential backoff with jitter.
-    ///
-    /// # Arguments
-    /// * `retry_attempt` - The current retry attempt number (1-based)
-    ///
-    /// # Returns
-    /// * Sleep time in seconds, capped at max_sleep
-    pub fn calculate_sleep_time(&self, retry_attempt: u32) -> f64 {
-        let exponential_sleep = (self.exponential_base.pow(retry_attempt)) as f64;
-        let sleep_time = rand::rng().random::<f64>() * exponential_sleep;
-        sleep_time.min(self.max_sleep)
-    }
 }
 
 /// Options for uploading a single video.
@@ -425,23 +385,6 @@ impl BatchConfigRoot {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_retry_config_default() {
-        let config = RetryConfig::default();
-        assert_eq!(config.max_retries, 10);
-        assert_eq!(config.base_sleep, 1.0);
-        assert_eq!(config.max_sleep, 60.0);
-        assert_eq!(config.exponential_base, 2);
-    }
-
-    #[test]
-    fn test_retry_config_calculate_sleep_time() {
-        let config = RetryConfig::default();
-        let sleep_time = config.calculate_sleep_time(1);
-        assert!(sleep_time >= 0.0);
-        assert!(sleep_time <= config.max_sleep);
-    }
 
     #[test]
     fn test_video_category_conversion() {

@@ -4,7 +4,7 @@
 //! including configuration parsing, validation, and API interactions.
 
 use anyhow::Result;
-use rust_yt_uploader::{
+use rust_yt_uploader::models::{
     BatchConfigRoot, CommonConfig, IndividualConfigRoot, PrivacyStatus, VideoCategory,
 };
 use validator::Validate;
@@ -205,27 +205,26 @@ fn test_privacy_status_serialization() -> Result<()> {
     Ok(())
 }
 
-#[test]
-fn test_retry_config() {
-    use rust_yt_uploader::RetryConfig;
+#[tokio::test]
+async fn test_retry_with_backoff_plain_params() {
+    // The retry helper takes plain parameters; verify the public API from an
+    // external consumer's perspective (module path, no-op retry on success).
+    let mut call_count = 0;
 
-    let config = RetryConfig::default();
-    assert_eq!(config.max_retries, 10);
-    assert_eq!(config.base_sleep, 1.0);
-    assert_eq!(config.max_sleep, 60.0);
-    assert_eq!(config.exponential_base, 2);
+    let result: Result<i32> = rust_yt_uploader::retry::retry_with_backoff(
+        || {
+            call_count += 1;
+            async { Ok::<i32, anyhow::Error>(42) }
+        },
+        rust_yt_uploader::retry::DEFAULT_MAX_RETRIES,
+        rust_yt_uploader::retry::DEFAULT_BASE_DELAY_MS,
+        "integration_test_operation",
+    )
+    .await;
 
-    // Test sleep time calculation
-    let sleep_time_1 = config.calculate_sleep_time(1);
-    let sleep_time_2 = config.calculate_sleep_time(2);
-    let sleep_time_10 = config.calculate_sleep_time(10);
-
-    assert!(sleep_time_1 >= 0.0);
-    assert!(sleep_time_1 <= config.max_sleep);
-    assert!(sleep_time_2 >= 0.0);
-    assert!(sleep_time_2 <= config.max_sleep);
-    assert!(sleep_time_10 >= 0.0);
-    assert!(sleep_time_10 <= config.max_sleep);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), 42);
+    assert_eq!(call_count, 1);
 }
 
 // Note: The following tests would require actual YouTube API credentials
@@ -234,8 +233,9 @@ fn test_retry_config() {
 #[tokio::test]
 #[ignore]
 async fn test_youtube_authentication() -> Result<()> {
-    use rust_yt_uploader::{
-        GoogleOAuth, build_youtube_base_url, credentials_path_for_profile, default_youtube_scopes,
+    use rust_yt_uploader::google_oauth::GoogleOAuth;
+    use rust_yt_uploader::youtube::{
+        build_youtube_base_url, credentials_path_for_profile, default_youtube_scopes,
         token_path_for_profile,
     };
 
@@ -260,7 +260,8 @@ async fn test_youtube_authentication() -> Result<()> {
 #[tokio::test]
 #[ignore]
 async fn test_video_upload() -> Result<()> {
-    use rust_yt_uploader::{VideoUploadOptions, YouTubeClient};
+    use rust_yt_uploader::YouTubeClient;
+    use rust_yt_uploader::models::VideoUploadOptions;
 
     let temp_file = create_test_video_file();
     let file_path = temp_file.path().to_string_lossy().to_string();
