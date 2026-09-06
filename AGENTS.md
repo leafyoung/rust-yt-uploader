@@ -93,6 +93,7 @@ All commits run: `cargo fmt` → `cargo clippy` → `cargo test` → trailing wh
 **❌ NEVER use `git commit --no-verify`** - This bypasses all pre-commit checks and will likely cause CI failures.
 
 If you used `--no-verify` and CI fails:
+
 1. Fix the issues (usually formatting: run `cargo fmt`)
 2. Re-stage files: `git add .`
 3. Commit **without** `--no-verify`: `git commit -m "fix: ..."`
@@ -100,11 +101,11 @@ If you used `--no-verify` and CI fails:
 
 ### Common Pre-commit Failures
 
-| Failure | Cause | Fix |
-|---------|-------|-----|
-| `cargo fmt` | Code formatting | Run `cargo fmt` then re-stage |
-| `cargo clippy` | Lint warnings | Fix warnings or run `cargo clippy --fix` |
-| `cargo test` | Test failures | Fix failing tests |
+| Failure        | Cause           | Fix                                      |
+| -------------- | --------------- | ---------------------------------------- |
+| `cargo fmt`    | Code formatting | Run `cargo fmt` then re-stage            |
+| `cargo clippy` | Lint warnings   | Fix warnings or run `cargo clippy --fix` |
+| `cargo test`   | Test failures   | Fix failing tests                        |
 
 ### Post-Commit CI Verification Checklist
 
@@ -211,7 +212,7 @@ gh run view --log-failed --repo leafyoung/rust-yt-uploader
 
 ## Runtime Audit & Live Test Cases
 
-Adjudicated results live in `review_reports/` (untracked): `IMPROVEMENT_REPORT.md` (read this
+Adjudicated results live in `runtime_audit_report/` (untracked): `IMPROVEMENT_REPORT.md` (read this
 first), `demo_runs.csv` (per-command measurements), `demo_logs/` (raw output).
 
 ### Harness sweep (in box2 container)
