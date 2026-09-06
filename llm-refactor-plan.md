@@ -12,12 +12,12 @@ This document outlines refactoring recommendations to make the codebase more mai
 
 **File sizes after refactoring:**
 
-| File | Lines Before | Lines After | Status |
-|------|--------------|-------------|--------|
-| youtube_client.rs | 2,259 | 1,823 | ✅ Improved |
-| youtube/types.rs | 0 | 351 | ✅ NEW |
-| youtube/mod.rs | 0 | 70 | ✅ NEW |
-| google_oauth/oauth.rs | 683 | 683 | ✅ Helper added |
+| File                  | Lines Before | Lines After | Status          |
+| --------------------- | ------------ | ----------- | --------------- |
+| youtube_client.rs     | 2,259        | 1,823       | ✅ Improved     |
+| youtube/types.rs      | 0            | 351         | ✅ NEW          |
+| youtube/mod.rs        | 0            | 70          | ✅ NEW          |
+| google_oauth/oauth.rs | 683          | 683         | ✅ Helper added |
 
 **Completed refactors (2026-03-21):**
 
@@ -47,8 +47,16 @@ This document outlines refactoring recommendations to make the codebase more mai
    - Updated to use `rust_yt_uploader::` instead of `youtube_client::`
 
 **Remaining work (optional, low priority):**
-- Split youtube_client.rs into smaller modules (upload.rs, video.rs, etc.)
-- The file is now manageable at 1,823 lines with types extracted
+
+None — all items completed (2026-03-21 + follow-up):
+
+- ~~Split youtube_client.rs into smaller modules (upload.rs, video.rs, etc.)~~ ✅ Done:
+  `youtube_client.rs` deleted; `YouTubeClient` impl blocks now live in
+  `youtube/{mod,upload,video,playlist,caption,comment}.rs` (types in `youtube/types.rs`)
+- ~~Ephemeral `reqwest::Client` per OAuth request~~ ✅ Done: `OAuthFlow` now holds a
+  reused `client: reqwest::Client` initialized in `Default`
+- ~~Obvious narrating comments~~ ✅ Done (removed from models.rs and the playlist
+  response-shape block)
 
 ## Final Verification (2026-03-21)
 
@@ -65,6 +73,7 @@ The following items from the original plan were reviewed and found to be already
 ## Original Issues (For Historical Reference)
 
 The codebase originally had these issues:
+
 1. **Large monolithic files** (youtube_client.rs at 2,259 lines)
 2. **Severe struct duplication** - 7 identical `VideoResponse` structs
 3. **Inline struct definitions** - 40 function-local structs
@@ -82,6 +91,7 @@ The codebase originally had these issues:
 **Problem:** youtube_client.rs defines **40 function-local inline structs** (4 more are module-level: `VideoUploadResponse`, `VideoSnippet`, `PlaylistInfoResponse`, `PageInfo`). There are **7 separate `VideoResponse` structs** with essentially identical structure — the most egregious example of inline struct abuse.
 
 **Verified locations of `VideoResponse` duplicates:**
+
 - Line 810: `list_videos()` — full nested struct with VideoItem, VideoSnippetFull, VideoStatus, RecordingDetails, ContentDetails
 - Line 924: `update_video_language()` — `items: Vec<serde_json::Value>`
 - Line 1004: `update_video_recording_date()` — `items: Vec<serde_json::Value>`
@@ -91,6 +101,7 @@ The codebase originally had these issues:
 - Line 1758: `has_pinned_comment()` - deeply nested
 
 **Function-local inline structs (40 total):**
+
 - `PlaylistItemResponse` (line 524), `PlaylistItemSnippet` (line 531) — in `add_to_playlist()`
 - `PlaylistItemsResponse` (line 665), `PlaylistItem` (line 670) — in `list_playlist_items()`
 - `SearchResponse` (line 734), `SearchItem` (line 741), `VideoId` (line 746) — in `search_videos()`
@@ -109,6 +120,7 @@ The codebase originally had these issues:
 - `CommentsResponse` (line 1811), `CommentItem` (line 1817), `ThreadSnippet` (line 1822), `TopLevelComment` (line 1830), `CommentSnippet` (line 1835), `AuthorChannelId` (line 1841) — in `has_pinned_comment()` body
 
 **Module-level structs (not inline, these are fine):**
+
 - `VideoUploadResponse` (line 74), `VideoSnippet` (line 82), `PlaylistInfoResponse` (line 91), `PageInfo` (line 98)
 
 **Recommendation:** Create `src/youtube/types.rs` with all YouTube API response types:
@@ -130,12 +142,14 @@ pub mod comment { ... }
 ```
 
 **Benefits:**
+
 - Any file can be regenerated independently
 - Single source of truth (eliminates 7 duplicate VideoResponse structs)
 - Clear, predictable location for API types
 - Easier to add new API endpoints
 
 **Files affected:**
+
 - `src/youtube_client.rs` (remove ~17 inline structs, import from types)
 - `src/lib.rs` (add pub mod declaration)
 - New file: `src/youtube/types.rs`
@@ -149,6 +163,7 @@ pub mod comment { ... }
 **Status:** ✅ **COMPLETED** (2026-03-21)
 
 `init_logging()` is now centralized in `lib.rs` and all 8 binaries use it:
+
 - `src/bin/yt_add_pin_comment.rs`
 - `src/bin/yt_add_tags.rs`
 - `src/bin/yt_append_description.rs`
@@ -159,6 +174,7 @@ pub mod comment { ... }
 - `src/bin/yt_upload_subtitle.rs`
 
 **Benefits achieved:**
+
 - Consistent logging across all 8 binaries
 - Single location for logging configuration changes
 - Fixed the 3 binaries that had no logging
@@ -185,6 +201,7 @@ src/youtube/
 ```
 
 **Benefits:**
+
 - Each file can be regenerated independently
 - Easier to locate specific functionality
 - Clearer boundaries for modifications
@@ -195,6 +212,7 @@ src/youtube/
 ### 3. Move Test Fixtures to Dedicated Module
 
 **Problem:** Test helper function `create_test_video_file()` is duplicated:
+
 - `src/youtube_client.rs` line 2180
 - `tests/integration.rs` line 16
 
@@ -227,9 +245,9 @@ The `execute_and_parse<T>()` helper method already exists in `YouTubeClient` and
 **Status:** ✅ **COMPLETED** (2026-03-21)
 
 A private helper `parse_token_response()` has been added to extract the common token parsing logic from `exchange_code()` and `refresh_token()`.
-        .get("expires_in")
-        .and_then(|v| v.as_i64())
-        .ok_or_else(|| anyhow!("Missing expires_in in response"))?; // also fixes unwrap()
+.get("expires_in")
+.and_then(|v| v.as_i64())
+.ok_or_else(|| anyhow!("Missing expires_in in response"))?; // also fixes unwrap()
 
     let expires_at = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -237,8 +255,10 @@ A private helper `parse_token_response()` has been added to extract the common t
         .as_secs() as i64 + expires_in;
 
     Ok((access_token, expires_at))
+
 }
-```
+
+````
 
 **Bonus fix:** The two `Client::new()` calls (lines 449, 525) create ephemeral HTTP clients. Since `OAuthFlow` is already a struct, add `client: Client` to it and initialize once in `Default::default()`.
 
@@ -255,11 +275,12 @@ A private helper `parse_token_response()` has been added to extract the common t
 ```rust
 // Check that titles and files entries have same length
 if self.titles.len() != self.files.len() { ... }  // models.rs:378
-```
+````
 
 **Recommendation:** Remove comments that describe what the code does. Keep comments that explain why or document invariants.
 
 **Examples to remove:**
+
 - `// Check that titles and files entries have same length` (models.rs:378)
 - Large commented JSON block (youtube_client.rs:460-470)
 
@@ -310,6 +331,7 @@ Investigation showed `put` method IS used (5 usages in youtube_client.rs for upd
 
 **Status:** Not actually an issue
 **Evidence:** Arc usage in `upload_batch_concurrent` (lines 2083-2090) is correct:
+
 - String fields cloned into Arc (efficient sharing)
 - `common_category` (u32) correctly NOT wrapped (implements Copy)
 
@@ -329,6 +351,7 @@ Investigation showed `put` method IS used (5 usages in youtube_client.rs for upd
 **Location:** `youtube_client.rs` lines 1364+
 
 **CORRECTION (2026-03-21):** The original analysis was INCORRECT. The function now uses:
+
 - `types::VideoResponseChannel`
 - `types::CommentsResponseAuthor`
 
@@ -360,14 +383,14 @@ Based on hands-on verification, the recommended order:
 
 ## Estimated Impact (Verified)
 
-| Change | Files Modified | Lines Changed | Regenerability Impact |
-|--------|---------------|---------------|----------------------|
-| API types extraction | 3 | ~400 | **Critical** - Eliminates 8 duplicates |
-| Test fixtures | 3 | ~50 | **High** - Removes duplication |
-| Split youtube_client.rs | 8 | ~200 | **Critical** - Reduces 2,259 line file |
-| Common API pattern | 2 | ~250 | **High** - Reduces 22 duplicates |
-| Remove comments | 2 | ~30 | **Low** |
-| Rename method | 2 | ~10 | **Low** |
+| Change                  | Files Modified | Lines Changed | Regenerability Impact                  |
+| ----------------------- | -------------- | ------------- | -------------------------------------- |
+| API types extraction    | 3              | ~400          | **Critical** - Eliminates 8 duplicates |
+| Test fixtures           | 3              | ~50           | **High** - Removes duplication         |
+| Split youtube_client.rs | 8              | ~200          | **Critical** - Reduces 2,259 line file |
+| Common API pattern      | 2              | ~250          | **High** - Reduces 22 duplicates       |
+| Remove comments         | 2              | ~30           | **Low**                                |
+| Rename method           | 2              | ~10           | **Low**                                |
 
 ---
 
@@ -388,6 +411,7 @@ These aspects align well with LLM-friendly principles and should be preserved:
 ## Verification Notes
 
 This plan was verified by:
+
 - Reading `youtube_client.rs` (2,259 lines)
 - Reading `models.rs` (533 lines)
 - Reading `google_oauth/google.rs` (94 lines)
@@ -417,6 +441,7 @@ The initial count missed some duplicates. Verified additional instances:
 **Location:** `src/google_oauth/google.rs` line 77
 
 **CORRECTION (2026-03-21):** The original analysis was INCORRECT. The `put` method IS used in youtube_client.rs:
+
 - Line 747: `.put("videos?part=snippet,recordingDetails")`
 - Line 812: `.put("videos?part=snippet,recordingDetails")`
 - Line 874: `.put("videos?part=snippet")`
@@ -450,17 +475,17 @@ pub async fn description_contains(&self, video_id: &str, content: &str) -> Resul
 
 ### 14. Large File Sizes Summary ✅ VERIFIED
 
-| File | Lines | Status |
-|------|-------|--------|
-| youtube_client.rs | 2,259 | **Critical** - needs splitting |
-| google_oauth/oauth.rs | 683 | **Medium** - token parsing duplication (previously unreviewed) |
-| models.rs | 533 | Acceptable |
-| lib.rs | 26 | Clean |
-| google_oauth/google.rs | 94 | Acceptable |
-| progress_stream.rs | 178 | Acceptable |
-| retry.rs | 213 | Acceptable |
-| video_process.rs | 52 | Acceptable |
-| tests/integration.rs | 287 | Acceptable |
+| File                   | Lines | Status                                                         |
+| ---------------------- | ----- | -------------------------------------------------------------- |
+| youtube_client.rs      | 2,259 | **Critical** - needs splitting                                 |
+| google_oauth/oauth.rs  | 683   | **Medium** - token parsing duplication (previously unreviewed) |
+| models.rs              | 533   | Acceptable                                                     |
+| lib.rs                 | 26    | Clean                                                          |
+| google_oauth/google.rs | 94    | Acceptable                                                     |
+| progress_stream.rs     | 178   | Acceptable                                                     |
+| retry.rs               | 213   | Acceptable                                                     |
+| video_process.rs       | 52    | Acceptable                                                     |
+| tests/integration.rs   | 287   | Acceptable                                                     |
 
 ### 15. Build & Lint Status ✅ VERIFIED
 
@@ -496,19 +521,19 @@ Only 4 structs have `#[allow(dead_code)]` while ~25+ inline structs don't. This 
 
 ## Final Priority Order (Revised) — THIRD VERIFICATION 2026-03-21
 
-| Priority | Item | Effort | Impact |
-|----------|------|--------|--------|
-| 1 | Extract API response types to `src/youtube/types.rs` | Medium | **Critical** — 7 duplicate VideoResponse, 40 inline structs |
-| 2 | Split youtube_client.rs into modules | High | **Critical** — 2,259 lines |
-| 3 | Extract `init_logging()` to `lib.rs`; add to 3 missing binaries | Low | **High** — 3 binaries silently drop all log output |
-| 4 | Move test fixtures to `tests/common/mod.rs` | Low | **High** — duplicated in 2 locations |
-| 5 | Extract common API request helper (`execute_and_parse`) | Medium | **High** — 22 duplicate error blocks in youtube_client.rs |
-| 6 | Deduplicate token parsing in `oauth.rs` | Low | Medium — 2 functions share ~12 lines of logic |
-| 7 | Remove unused `Credentials` export from lib.rs | Low | Low — dead code in public API |
-| 8 | Remove unused `put` method from GoogleOAuth | Low | Low — dead code |
-| 9 | Rename `_authenticated_request` → `authenticated_request` | Low | Low — naming clarity |
-| 10 | Standardize `has_pinned_comment()` error handling | Medium | Medium — API consistency |
-| 11 | Remove obvious comments | Low | Low — code cleanliness |
+| Priority | Item                                                            | Effort | Impact                                                      |
+| -------- | --------------------------------------------------------------- | ------ | ----------------------------------------------------------- |
+| 1        | Extract API response types to `src/youtube/types.rs`            | Medium | **Critical** — 7 duplicate VideoResponse, 40 inline structs |
+| 2        | Split youtube_client.rs into modules                            | High   | **Critical** — 2,259 lines                                  |
+| 3        | Extract `init_logging()` to `lib.rs`; add to 3 missing binaries | Low    | **High** — 3 binaries silently drop all log output          |
+| 4        | Move test fixtures to `tests/common/mod.rs`                     | Low    | **High** — duplicated in 2 locations                        |
+| 5        | Extract common API request helper (`execute_and_parse`)         | Medium | **High** — 22 duplicate error blocks in youtube_client.rs   |
+| 6        | Deduplicate token parsing in `oauth.rs`                         | Low    | Medium — 2 functions share ~12 lines of logic               |
+| 7        | Remove unused `Credentials` export from lib.rs                  | Low    | Low — dead code in public API                               |
+| 8        | Remove unused `put` method from GoogleOAuth                     | Low    | Low — dead code                                             |
+| 9        | Rename `_authenticated_request` → `authenticated_request`       | Low    | Low — naming clarity                                        |
+| 10       | Standardize `has_pinned_comment()` error handling               | Medium | Medium — API consistency                                    |
+| 11       | Remove obvious comments                                         | Low    | Low — code cleanliness                                      |
 
 ---
 
@@ -516,60 +541,60 @@ Only 4 structs have `#[allow(dead_code)]` while ~25+ inline structs don't. This 
 
 ### VideoResponse Structs (7 duplicates)
 
-| Line | Function | `items` element type |
-|------|----------|-----------|
-| 810 | `list_videos()` | `Vec<VideoItem>` with full nested structs (VideoSnippetFull, VideoStatus, RecordingDetails, ContentDetails) |
-| 924 | `update_video_language()` | `Vec<serde_json::Value>` |
-| 1004 | `update_video_recording_date()` | `Vec<serde_json::Value>` |
-| 1080 | `append_description()` | `Vec<serde_json::Value>` |
-| 1163 | `update_video_tags()` | `Vec<VideoItem>` (inner function) |
-| 1225 | `list_captions()` | `Vec<serde_json::Value>` (inner function) |
-| 1758 | `has_pinned_comment()` | `Vec<VideoItem>` (deeply nested scope) |
+| Line | Function                        | `items` element type                                                                                        |
+| ---- | ------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| 810  | `list_videos()`                 | `Vec<VideoItem>` with full nested structs (VideoSnippetFull, VideoStatus, RecordingDetails, ContentDetails) |
+| 924  | `update_video_language()`       | `Vec<serde_json::Value>`                                                                                    |
+| 1004 | `update_video_recording_date()` | `Vec<serde_json::Value>`                                                                                    |
+| 1080 | `append_description()`          | `Vec<serde_json::Value>`                                                                                    |
+| 1163 | `update_video_tags()`           | `Vec<VideoItem>` (inner function)                                                                           |
+| 1225 | `list_captions()`               | `Vec<serde_json::Value>` (inner function)                                                                   |
+| 1758 | `has_pinned_comment()`          | `Vec<VideoItem>` (deeply nested scope)                                                                      |
 
 ### All 40 Function-Local Inline Structs
 
-| Struct | Line | Function |
-|--------|------|----------|
-| `PlaylistItemResponse` | 524 | `add_to_playlist()` |
-| `PlaylistItemSnippet` | 531 | `add_to_playlist()` |
-| `PlaylistItemsResponse` | 665 | `list_playlist_items()` |
-| `PlaylistItem` | 670 | `list_playlist_items()` |
-| `SearchResponse` | 734 | `search_videos()` |
-| `SearchItem` | 741 | `search_videos()` |
-| `VideoId` | 746 | `search_videos()` |
-| `VideoResponse` | 810 | `list_videos()` |
-| `VideoItem` | 815 | `list_videos()` |
-| `VideoSnippetFull` | 826 | `list_videos()` |
-| `VideoStatus` | 841 | `list_videos()` |
-| `RecordingDetails` | 847 | `list_videos()` |
-| `ContentDetails` | 853 | `list_videos()` |
-| `VideoResponse` | 924 | `update_video_language()` |
-| `VideoResponse` | 1004 | `update_video_recording_date()` |
-| `VideoResponse` | 1080 | `append_description()` |
-| `VideoResponse` | 1163 | `update_video_tags()` |
-| `VideoItem` | 1168 | `update_video_tags()` |
-| `VideoSnippet` | 1173 | `update_video_tags()` |
-| `VideoResponse` | 1225 | `list_captions()` preamble |
-| `CaptionResponse` | 1333 | `list_captions()` body |
-| `CaptionItem` | 1338 | `list_captions()` body |
-| `CaptionSnippet` | 1344 | `list_captions()` body |
-| `CaptionUploadResponse` | 1494 | `upload_caption()` |
-| `CommentResponse` | 1554 | `add_comment()` |
-| `CommentThreadResponse` | 1588 | `get_comment_threads()` |
-| `CommentsResponse` | 1700 | `comment_exists()` |
-| `CommentItem` | 1705 | `comment_exists()` |
-| `CommentSnippet` | 1710 | `comment_exists()` |
-| `TopLevelComment` | 1716 | `comment_exists()` |
-| `TextSnippet` | 1721 | `comment_exists()` |
-| `VideoResponse` | 1758 | `has_pinned_comment()` (nested scope) |
-| `VideoItem` | 1762 | `has_pinned_comment()` (nested scope) |
-| `VideoSnippet` | 1766 | `has_pinned_comment()` (nested scope) |
-| `CommentsResponse` | 1811 | `has_pinned_comment()` |
-| `CommentItem` | 1817 | `has_pinned_comment()` |
-| `ThreadSnippet` | 1822 | `has_pinned_comment()` |
-| `TopLevelComment` | 1830 | `has_pinned_comment()` |
-| `CommentSnippet` | 1835 | `has_pinned_comment()` |
-| `AuthorChannelId` | 1841 | `has_pinned_comment()` |
+| Struct                  | Line | Function                              |
+| ----------------------- | ---- | ------------------------------------- |
+| `PlaylistItemResponse`  | 524  | `add_to_playlist()`                   |
+| `PlaylistItemSnippet`   | 531  | `add_to_playlist()`                   |
+| `PlaylistItemsResponse` | 665  | `list_playlist_items()`               |
+| `PlaylistItem`          | 670  | `list_playlist_items()`               |
+| `SearchResponse`        | 734  | `search_videos()`                     |
+| `SearchItem`            | 741  | `search_videos()`                     |
+| `VideoId`               | 746  | `search_videos()`                     |
+| `VideoResponse`         | 810  | `list_videos()`                       |
+| `VideoItem`             | 815  | `list_videos()`                       |
+| `VideoSnippetFull`      | 826  | `list_videos()`                       |
+| `VideoStatus`           | 841  | `list_videos()`                       |
+| `RecordingDetails`      | 847  | `list_videos()`                       |
+| `ContentDetails`        | 853  | `list_videos()`                       |
+| `VideoResponse`         | 924  | `update_video_language()`             |
+| `VideoResponse`         | 1004 | `update_video_recording_date()`       |
+| `VideoResponse`         | 1080 | `append_description()`                |
+| `VideoResponse`         | 1163 | `update_video_tags()`                 |
+| `VideoItem`             | 1168 | `update_video_tags()`                 |
+| `VideoSnippet`          | 1173 | `update_video_tags()`                 |
+| `VideoResponse`         | 1225 | `list_captions()` preamble            |
+| `CaptionResponse`       | 1333 | `list_captions()` body                |
+| `CaptionItem`           | 1338 | `list_captions()` body                |
+| `CaptionSnippet`        | 1344 | `list_captions()` body                |
+| `CaptionUploadResponse` | 1494 | `upload_caption()`                    |
+| `CommentResponse`       | 1554 | `add_comment()`                       |
+| `CommentThreadResponse` | 1588 | `get_comment_threads()`               |
+| `CommentsResponse`      | 1700 | `comment_exists()`                    |
+| `CommentItem`           | 1705 | `comment_exists()`                    |
+| `CommentSnippet`        | 1710 | `comment_exists()`                    |
+| `TopLevelComment`       | 1716 | `comment_exists()`                    |
+| `TextSnippet`           | 1721 | `comment_exists()`                    |
+| `VideoResponse`         | 1758 | `has_pinned_comment()` (nested scope) |
+| `VideoItem`             | 1762 | `has_pinned_comment()` (nested scope) |
+| `VideoSnippet`          | 1766 | `has_pinned_comment()` (nested scope) |
+| `CommentsResponse`      | 1811 | `has_pinned_comment()`                |
+| `CommentItem`           | 1817 | `has_pinned_comment()`                |
+| `ThreadSnippet`         | 1822 | `has_pinned_comment()`                |
+| `TopLevelComment`       | 1830 | `has_pinned_comment()`                |
+| `CommentSnippet`        | 1835 | `has_pinned_comment()`                |
+| `AuthorChannelId`       | 1841 | `has_pinned_comment()`                |
 
 ---
 
@@ -589,6 +614,7 @@ if !response.status().is_success() {
 425, 512, 573, 607, 654, 723, 799, 913, 964, 993, 1044, 1069, 1121, 1152, 1214, 1288, 1322, 1483, 1543, 1599, 1689, 1852
 
 **Additional 2 instances in `src/google_oauth/oauth.rs`** (not covered by the youtube_client helper):
+
 - Line ~475 in `exchange_code()`
 - Line ~546 in `refresh_token()`
 
@@ -620,14 +646,14 @@ impl YouTubeClient {
 
 ### Confirmed Findings
 
-| Finding | Previous Claim | Verified Count | Status |
-|---------|---------------|----------------|--------|
-| VideoResponse duplicates | 7 | 7 | ✅ Exact |
-| Function-local inline structs | 37 | **40** | ✅ Corrected (+3) |
-| Error handling blocks (youtube_client.rs) | 22 | 22 | ✅ Exact |
-| Error handling blocks (oauth.rs) | not counted | 2 | ✅ New |
-| Test fixture duplication | 2 locations | 2 locations | ✅ Exact |
-| Appendix B line numbers | stale (~179-1315) | updated (425-1852) | ✅ Corrected |
+| Finding                                   | Previous Claim    | Verified Count     | Status            |
+| ----------------------------------------- | ----------------- | ------------------ | ----------------- |
+| VideoResponse duplicates                  | 7                 | 7                  | ✅ Exact          |
+| Function-local inline structs             | 37                | **40**             | ✅ Corrected (+3) |
+| Error handling blocks (youtube_client.rs) | 22                | 22                 | ✅ Exact          |
+| Error handling blocks (oauth.rs)          | not counted       | 2                  | ✅ New            |
+| Test fixture duplication                  | 2 locations       | 2 locations        | ✅ Exact          |
+| Appendix B line numbers                   | stale (~179-1315) | updated (425-1852) | ✅ Corrected      |
 
 ### New Findings Added
 

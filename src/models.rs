@@ -375,7 +375,6 @@ impl BatchConfigRoot {
 
     /// Validate that files exist and titles/files have matching lengths
     pub async fn validate_files_and_lengths(&self) -> Result<()> {
-        // Check that titles and files entries have same length
         if self.titles.len() != self.files.len() {
             return Err(anyhow!(
                 "Mismatch between titles and files: {} titles != {} files entries",

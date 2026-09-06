@@ -24,7 +24,7 @@ cargo test --lib                     # Library tests only
 
 ## Project Structure
 
-**Core Library** (`src/lib.rs`): `google_oauth`, `models`, `youtube_client`, `retry`, `progress_stream`, `video_process`
+**Core Library** (`src/lib.rs`): `google_oauth`, `models`, `youtube` (client split into `youtube/{mod,upload,video,playlist,caption,comment,types}.rs`), `retry`, `progress_stream`, `video_process`
 
 **CLI Binaries** (`src/bin/`): `yt-upload`, `yt-list`, `yt-append-description`, `yt-add-pin-comment`, `yt-add-tags`, `yt-update-lang`, `yt-update-date`, `yt-upload-subtitle`
 
@@ -269,4 +269,4 @@ measurement + detector separately — pick one (a second run would double-post).
   `--target x86_64-unknown-linux-gnu` + `-Z build-std=std` (target-scoped flags + `--target` are
   REQUIRED — plain `RUSTFLAGS` breaks build scripts with ABI-mismatch errors). Expect exit 66
   with ~2 tokio-internal `ScheduledIo` warnings (loom-verified pattern, known TSan blind spot);
-  anything in `youtube_client.rs`/`progress_stream.rs` racing accesses would be a real finding.
+  anything in `youtube/` (client methods)/`progress_stream.rs` racing accesses would be a real finding.

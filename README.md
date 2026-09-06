@@ -89,7 +89,7 @@ For more advanced use cases requiring direct API access:
 
 ```rust
 use rust_yt_uploader::google_oauth::{GoogleOAuth, Credentials};
-use rust_yt_uploader::{youtube_client, credentials_path_for_profile, token_path_for_profile};
+use rust_yt_uploader::{youtube, credentials_path_for_profile, token_path_for_profile};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -98,8 +98,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let oauth_client = GoogleOAuth::new(
         credentials_path_for_profile(profile)?,  // client_secret-work.json
         token_path_for_profile(profile)?,        // youtube-oauth2-work.json
-        youtube_client::default_youtube_scopes(),
-        youtube_client::build_youtube_base_url(),
+        youtube::default_youtube_scopes(),
+        youtube::build_youtube_base_url(),
     ).await?;
 
     // Use the authenticated client for custom API calls

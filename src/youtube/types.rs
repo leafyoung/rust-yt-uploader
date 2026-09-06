@@ -1,6 +1,7 @@
 //! YouTube API response types.
 //!
-//! This module contains all YouTube API response structs, extracted from youtube_client.rs
+//! This module contains all YouTube API response structs, extracted from the
+//! former youtube_client.rs monolith
 //! to provide a single source of truth and eliminate duplication.
 
 use serde::Deserialize;

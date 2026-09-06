@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use rust_yt_uploader::{init_logging, validate_profile_name, youtube_client::YouTubeClient};
+use rust_yt_uploader::{init_logging, validate_profile_name, youtube::YouTubeClient};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;

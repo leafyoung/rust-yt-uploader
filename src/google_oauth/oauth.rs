@@ -78,6 +78,8 @@ pub struct OAuthFlow {
     code_verifier: String,
     code_challenge: String,
     state: String,
+    /// Shared HTTP client reused across token exchange/refresh requests.
+    client: Client,
 }
 
 /// Characters allowed in PKCE code verifier (RFC 7636)
@@ -111,6 +113,7 @@ impl Default for OAuthFlow {
             code_verifier,
             code_challenge,
             state,
+            client: Client::new(),
         }
     }
 }
@@ -453,8 +456,6 @@ impl OAuthFlow {
         redirect_uri: &str,
         scopes: &[&str],
     ) -> Result<Credentials> {
-        let client = Client::new();
-
         let body = encode_form_params!([
             ("client_id", app_secret.client_id.as_str()),
             ("client_secret", app_secret.client_secret.as_str()),
@@ -464,7 +465,8 @@ impl OAuthFlow {
             ("code_verifier", &self.code_verifier),
         ]);
 
-        let response = client
+        let response = self
+            .client
             .post(&app_secret.token_uri)
             .header("Content-Type", "application/x-www-form-urlencoded")
             .body(body)
@@ -542,8 +544,6 @@ impl OAuthFlow {
         refresh_token: &str,
         scopes: &[&str],
     ) -> Result<Credentials> {
-        let client = Client::new();
-
         let body = encode_form_params!([
             ("client_id", app_secret.client_id.as_str()),
             ("client_secret", app_secret.client_secret.as_str()),
@@ -551,7 +551,8 @@ impl OAuthFlow {
             ("grant_type", "refresh_token"),
         ]);
 
-        let response = client
+        let response = self
+            .client
             .post(&app_secret.token_uri)
             .header("Content-Type", "application/x-www-form-urlencoded")
             .body(body)

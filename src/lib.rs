@@ -10,7 +10,6 @@ pub mod progress_stream;
 pub mod retry;
 pub mod video_process;
 pub mod youtube;
-pub mod youtube_client;
 
 // Re-export commonly used types
 pub use google_oauth::GoogleOAuth;
@@ -20,13 +19,13 @@ pub use models::{
 };
 pub use video_process::merge_videos_with_ffmpeg;
 pub use youtube::{
+    CaptionDetails, NoProgress, ProgressBarReporter, ProgressReporter, VideoDetails, YouTubeClient,
+    upload_batch_concurrent, upload_batch_sequential, upload_individual_sequential,
+};
+pub use youtube::{
     build_youtube_base_url, build_youtube_direct_upload_url, credentials_path_for_profile,
     default_youtube_scopes, resolve_credentials_path_for_profile, token_path_for_profile,
     validate_profile_name,
-};
-pub use youtube_client::{
-    CaptionDetails, NoProgress, ProgressBarReporter, ProgressReporter, VideoDetails, YouTubeClient,
-    upload_batch_concurrent, upload_batch_sequential, upload_individual_sequential,
 };
 
 pub use retry::retry_with_backoff;

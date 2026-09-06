@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use tokio::time::Sleep;
 use tokio_util::bytes::Bytes;
 
-use crate::youtube_client::ProgressReporter;
+use crate::youtube::ProgressReporter;
 
 /// Default buffer size for file reads (256KB for optimal throughput)
 pub const DEFAULT_BUFFER_SIZE: usize = 256 * 1024;
