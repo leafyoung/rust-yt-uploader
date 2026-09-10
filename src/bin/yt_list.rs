@@ -107,9 +107,9 @@ fn format_as_json(videos: &[rust_yt_uploader::VideoDetails]) -> Result<String> {
 }
 
 /// Merge fresh page entries into an existing JSON output file, overwriting by "id".
-/// Existing entries keep their position; new entries are appended (search returns
-/// newest first). A missing output file yields just the fresh entries; without an
-/// output file there is nothing to merge into.
+/// The result is sorted by `upload_date` descending (newest first). A missing
+/// output file yields just the fresh entries; without an output file there is
+/// nothing to merge into.
 fn merge_with_existing_file(
     fresh: &[rust_yt_uploader::VideoDetails],
     output: Option<&std::path::Path>,
@@ -128,6 +128,8 @@ fn merge_with_existing_file(
             None => merged.push(video.clone()),
         }
     }
+    // ISO-8601 timestamps sort lexicographically; empty dates sink to the end
+    merged.sort_by(|a, b| b.upload_date.cmp(&a.upload_date));
     Ok(merged)
 }
 
@@ -408,29 +410,42 @@ mod tests {
     use super::*;
 
     fn video(id: &str, title: &str) -> rust_yt_uploader::VideoDetails {
+        video_date(id, title, "2026-01-01T00:00:00Z")
+    }
+
+    fn video_date(id: &str, title: &str, date: &str) -> rust_yt_uploader::VideoDetails {
         serde_json::from_value(serde_json::json!({
             "id": id, "title": title, "description": "", "status": "public",
-            "upload_date": "2026-01-01T00:00:00Z", "categoryId": "22", "tags": []
+            "upload_date": date, "categoryId": "22", "tags": []
         }))
         .unwrap()
     }
 
     #[test]
-    fn merge_overwrites_by_id_and_appends_new() {
+    fn merge_sorts_by_upload_date_desc_and_overwrites_by_id() {
         let dir = std::env::temp_dir().join("yt_list_merge_test");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("snap.json");
+        // two pre-existing entries with older dates, plus a malformed-date entry
         std::fs::write(
             &path,
-            r#"[{"id":"a","title":"A old","description":"","status":"public","upload_date":"2026-01-01T00:00:00Z","categoryId":"22","tags":[]},{"id":"b","title":"B","description":"","status":"public","upload_date":"2026-01-01T00:00:00Z","categoryId":"22","tags":[]}]"#,
+            r#"[{"id":"a","title":"A old","description":"","status":"public","upload_date":"2024-01-01T00:00:00Z","categoryId":"22","tags":[]},{"id":"b","title":"B","description":"","status":"public","upload_date":"2025-06-01T00:00:00Z","categoryId":"22","tags":[]},{"id":"z","title":"Z nodate","description":"","status":"public","upload_date":"","categoryId":"22","tags":[]}]"#,
         )
         .unwrap();
 
-        let fresh = vec![video("b", "B new"), video("c", "C")];
+        // fresh page: b updated (newer date), c brand-new (newest of all)
+        let fresh = vec![
+            video_date("b", "B new", "2026-03-01T00:00:00Z"),
+            video_date("c", "C", "2026-05-01T00:00:00Z"),
+        ];
         let merged = merge_with_existing_file(&fresh, Some(&path)).unwrap();
 
         let ids: Vec<&str> = merged.iter().map(|v| v.id.as_str()).collect();
-        assert_eq!(ids, ["a", "b", "c"], "existing order kept, new appended");
+        assert_eq!(
+            ids,
+            ["c", "b", "a", "z"],
+            "sorted by upload_date desc, empty date last"
+        );
         assert_eq!(merged[1].title, "B new", "existing entry overwritten by id");
         std::fs::remove_file(&path).ok();
     }
