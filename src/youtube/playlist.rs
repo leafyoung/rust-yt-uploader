@@ -12,36 +12,12 @@ impl YouTubeClient {
         video_id: &str,
         playlist_id: &str,
     ) -> Result<String> {
-        let playlist_info = self
-            .client
-            .get(&format!(
-                "playlistItems?part=contentDetails&playlistId={}",
-                playlist_id
-            ))
-            .await?
-            .send()
-            .await?;
-
-        if !playlist_info.status().is_success() {
-            let status = playlist_info.status();
-            let text = playlist_info.text().await.unwrap_or_default();
-            return Err(anyhow!(
-                "Failed to get playlist info with status {}: {}",
-                status,
-                text
-            ));
-        }
-
-        let info: serde_json::Value = playlist_info.json().await?;
-        let info_response: types::PlaylistInfoResponse = serde_json::from_value(info)?;
-        let position = info_response.page_info.total_results;
-
-        info!("Adding video to playlist at position {}", position);
-
+        // Omit "position": the API appends to the end of the playlist. Computing it
+        // from pageInfo.totalResults overcounts (private/deleted videos) and gets
+        // rejected with 400 INVALID_ARGUMENT once past the real end.
         let playlist_item = json!({
             "snippet": {
                 "playlistId": playlist_id,
-                "position": position,
                 "resourceId": {
                     "kind": "youtube#video",
                     "videoId": video_id

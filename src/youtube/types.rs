@@ -79,20 +79,6 @@ pub struct VideoSnippet {
 // Playlist Response Types
 // ============================================================================
 
-/// Playlist info response from YouTube API
-#[derive(Debug, Deserialize)]
-pub struct PlaylistInfoResponse {
-    #[serde(rename = "pageInfo")]
-    pub page_info: PageInfo,
-}
-
-/// Page info for pagination
-#[derive(Debug, Deserialize)]
-pub struct PageInfo {
-    #[serde(rename = "totalResults")]
-    pub total_results: u32,
-}
-
 /// Playlist item response from YouTube API
 #[derive(Debug, Deserialize)]
 pub struct PlaylistItemResponse {
