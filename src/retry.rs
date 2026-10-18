@@ -19,7 +19,9 @@ const MAX_SLEEP_SECS: f64 = 60.0;
 const EXPONENTIAL_BASE: u32 = 2;
 
 /// HTTP status codes that should trigger a retry
-pub const RETRIABLE_STATUS_CODES: &[u16] = &[500, 502, 503, 504];
+// 409 ABORTED/SERVICE_UNAVAILABLE: YouTube reports this for freshly-uploaded
+// videos still processing (playlistItems.insert); it is transient, not a conflict.
+pub const RETRIABLE_STATUS_CODES: &[u16] = &[409, 500, 502, 503, 504];
 
 /// Check if an HTTP status code is retriable
 pub fn is_retriable_status(status: u16) -> bool {
@@ -42,6 +44,14 @@ pub fn is_retriable_error(error: &anyhow::Error) -> bool {
 
     // IO errors are generally retriable
     if error.downcast_ref::<std::io::Error>().is_some() {
+        return true;
+    }
+
+    // Most call sites wrap HTTP failures as anyhow string errors in the form
+    // "... with status {status}: {body}"; the reqwest::Error downcast above never
+    // sees those. 409 here is YouTube's ABORTED/SERVICE_UNAVAILABLE for
+    // freshly-uploaded videos still processing - transient, not a conflict.
+    if error.to_string().contains("status 409") {
         return true;
     }
 
