@@ -7,11 +7,14 @@ use tracing::info;
 use super::{YouTubeClient, types};
 
 impl YouTubeClient {
-    pub(super) async fn add_to_playlist(
-        &self,
-        video_id: &str,
-        playlist_id: &str,
-    ) -> Result<String> {
+    /// Add a video to a playlist (appended at the end).
+    ///
+    /// Returns the new playlist item ID.
+    ///
+    /// # Arguments
+    /// * `video_id` - The YouTube video ID to add
+    /// * `playlist_id` - The playlist ID to add the video to
+    pub async fn add_to_playlist(&self, video_id: &str, playlist_id: &str) -> Result<String> {
         // Omit "position": the API appends to the end of the playlist. Computing it
         // from pageInfo.totalResults overcounts (private/deleted videos) and gets
         // rejected with 400 INVALID_ARGUMENT once past the real end.
@@ -84,6 +87,27 @@ impl YouTubeClient {
 
         info!("Successfully removed playlist item: {}", playlist_item_id);
         Ok(())
+    }
+
+    /// Check whether a video is already in a playlist.
+    ///
+    /// # Arguments
+    /// * `playlist_id` - The playlist ID
+    /// * `video_id` - The YouTube video ID to look for
+    pub async fn is_video_in_playlist(&self, playlist_id: &str, video_id: &str) -> Result<bool> {
+        let playlist_items: types::PlaylistItemsResponse = self
+            .execute_and_parse(
+                self.client
+                    .get(&format!(
+                        "playlistItems?part=id&playlistId={}&videoId={}",
+                        playlist_id, video_id
+                    ))
+                    .await?,
+                "query playlist items",
+            )
+            .await?;
+
+        Ok(!playlist_items.items.is_empty())
     }
 
     /// Remove a video from a playlist by video ID.
